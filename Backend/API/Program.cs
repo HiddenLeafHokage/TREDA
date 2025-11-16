@@ -10,6 +10,20 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+
+// Use InMemory database for testing
+builder.Services.AddDbContext<TredaDbContext>(options =>
+{
+    options.UseInMemoryDatabase("TredaTestDB");
+});
+
+// Register services
+builder.Services.AddScoped<ITokenService, TokenService>();
+builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IEmailService, EmailService>();
+builder.Services.AddScoped<ITokenGenerator, TokenGenerator>();
+builder.Services.AddScoped<IAuthService, AuthService>();
 
 // Configure Swagger
 builder.Services.AddSwaggerGen(c =>
@@ -26,38 +40,17 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
-// Use InMemory database for testing
-builder.Services.AddDbContext<TredaDbContext>(options =>
-{
-    options.UseInMemoryDatabase("TredaTestDB");
-});
 
-// Register services
-builder.Services.AddScoped<ITokenService, TokenService>();
-builder.Services.AddScoped<IAuthService, AuthService>();
-builder.Services.AddScoped<IEmailService, EmailService>();
-builder.Services.AddScoped<ITokenGenerator, TokenGenerator>();
-builder.Services.AddScoped<IAuthService, AuthService>();
+
 
 // Add logging
 builder.Services.AddLogging();
 
-// Configure CORS for frontend
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy("AllowFrontend", policy =>
-    {
-        policy.WithOrigins(
-                "http://localhost:3000",  // React default port
-                "http://localhost:3001",
-                "https://localhost:3000",
-                "https://localhost:3001"
-            )
-            .AllowAnyHeader()
-            .AllowAnyMethod()
-            .AllowCredentials(); // Important for cookies/auth
-    });
-});
+// CORS
+builder.Services.AddCors(options => 
+    options.AddPolicy("AllowAll", policy => 
+        policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
+
 
 var app = builder.Build();
 
@@ -65,22 +58,8 @@ var app = builder.Build();
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
-    // Configure CORS for frontend
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy("AllowFrontend", policy =>
-    {
-        policy.WithOrigins(
-                "http://localhost:3000",  // React default port
-                "http://localhost:3001",
-                "https://localhost:3000",
-                "https://localhost:3001"
-            )
-            .AllowAnyHeader()
-            .AllowAnyMethod()
-            .AllowCredentials(); // Important for cookies/auth
-    });
-});
+    app.UseSwaggerUI();
+
 }
 
 app.UseHttpsRedirection();
