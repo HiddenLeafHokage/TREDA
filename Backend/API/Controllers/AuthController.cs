@@ -1,5 +1,6 @@
 // API/Controllers/AuthController.cs
 using API.Attributes;
+using Application.Constants;
 using Application.DTOs.Auth;
 using Application.DTOs.Common;
 using Application.Interfaces;
@@ -141,7 +142,7 @@ public class AuthController : ControllerBase
         };
     }
     
-    [SimpleAuthorize("Buyer", "Seller", "Admin")]
+    [SimpleAuthorize(AppConstants.Roles.Buyer, AppConstants.Roles.Vendor, AppConstants.Roles.Admin)]
     [HttpGet("profile")]
     public ActionResult<ApiResponse<object>> GetProfile()
     {

@@ -5,6 +5,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.Extensions.Configuration;
 
 namespace API.Attributes;
 
@@ -30,17 +31,23 @@ public class SimpleAuthorizeAttribute : Attribute, IAuthorizationFilter
 
         try
         {
+            var configuration = context.HttpContext.RequestServices.GetRequiredService<IConfiguration>();
+            var jwtSecret = configuration["Jwt:Secret"] 
+                ?? throw new InvalidOperationException("JWT Secret is not configured");
+            var jwtIssuer = configuration["Jwt:Issuer"] ?? "treda-api";
+            var jwtAudience = configuration["Jwt:Audience"] ?? "treda-client";
+            
             var tokenHandler = new JwtSecurityTokenHandler();
-            var key = Encoding.UTF8.GetBytes("your-super-secret-key-with-at-least-32-characters-here-for-treda-app-2024");
+            var key = Encoding.UTF8.GetBytes(jwtSecret);
             
             tokenHandler.ValidateToken(token, new TokenValidationParameters
             {
                 ValidateIssuerSigningKey = true,
                 IssuerSigningKey = new SymmetricSecurityKey(key),
                 ValidateIssuer = true,
-                ValidIssuer = "treda-api",
+                ValidIssuer = jwtIssuer,
                 ValidateAudience = true,
-                ValidAudience = "treda-client",
+                ValidAudience = jwtAudience,
                 ValidateLifetime = true,
                 ClockSkew = TimeSpan.Zero
             }, out var validatedToken);
