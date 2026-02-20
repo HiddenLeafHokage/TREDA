@@ -3,6 +3,6 @@ namespace Domain.Enums;
 public enum UserType
 {
     Buyer = 1,
-    Seller = 2,
+    Vendor = 2,  // Vendor = Seller (same thing)
     Admin = 3
 }

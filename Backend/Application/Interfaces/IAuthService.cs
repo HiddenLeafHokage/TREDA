@@ -19,4 +19,7 @@ public interface IAuthService
     Task<ApiResponse<bool>> RequestPasswordResetAsync(ForgotPasswordDto forgotPasswordDto);
     Task<ApiResponse<bool>> VerifyResetCodeAsync(VerifyResetCodeDto verifyResetCodeDto);
     Task<ApiResponse<bool>> ResetPasswordAsync(ResetPasswordDto resetPasswordDto);
+
+    Task<ApiResponse<Application.DTOs.Vendor.VendorProfileDto>> GetVendorProfileAsync(string userId);
+    Task<ApiResponse<bool>> UpdateVendorProfileAsync(string userId, Application.DTOs.Vendor.UpdateVendorProfileDto dto);
 }

@@ -95,7 +95,7 @@ public class AuthService : IAuthService
                 UserType = user.UserType.ToString(),
                 EmailVerified = user.EmailVerified,
                 BusinessName = user.BusinessName,
-                ProfileCompleted = IsSellerProfileComplete(user),
+                ProfileCompleted = IsVendorProfileComplete(user),
                 Token = token,
                 RefreshToken = refreshToken,
                 Expiration = DateTime.UtcNow.AddMinutes(60)
@@ -150,7 +150,7 @@ public class AuthService : IAuthService
                 UserType = user.UserType.ToString(),
                 EmailVerified = user.EmailVerified,
                 BusinessName = user.BusinessName,
-                ProfileCompleted = IsSellerProfileComplete(user),
+                ProfileCompleted = IsVendorProfileComplete(user),
                 Token = token,
                 RefreshToken = refreshToken,
                 Expiration = DateTime.UtcNow.AddMinutes(tokenExpirationMinutes)
@@ -211,7 +211,7 @@ public class AuthService : IAuthService
                 UserType = user.UserType.ToString(),
                 EmailVerified = user.EmailVerified,
                 BusinessName = user.BusinessName,
-                ProfileCompleted = IsSellerProfileComplete(user),
+                ProfileCompleted = IsVendorProfileComplete(user),
                 Token = newToken,
                 RefreshToken = newRefreshToken,
                 Expiration = DateTime.UtcNow.AddMinutes(60)
@@ -295,7 +295,7 @@ public class AuthService : IAuthService
                 BusinessLogoUrl = vendorDto.BusinessLogoUrl,
                 CAC_RC_Number = vendorDto.CAC_RC_Number,
                 DeliveryMethod = vendorDto.DeliveryMethod,
-                UserType = UserType.Seller,
+                UserType = UserType.Vendor,
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword(vendorDto.Password),
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,
@@ -574,14 +574,64 @@ public class AuthService : IAuthService
         }
     }
     
-    private bool IsSellerProfileComplete(User user)
+    private bool IsVendorProfileComplete(User user)
     {
-        if (user.UserType != UserType.Seller) return true;
+        if (user.UserType != UserType.Vendor) return true;
         
         return !string.IsNullOrEmpty(user.BusinessCategory) &&
                !string.IsNullOrEmpty(user.BusinessLocation) &&
                !string.IsNullOrEmpty(user.ShopDescription) &&
                !string.IsNullOrEmpty(user.CAC_RC_Number) &&
                user.DeliveryMethod.HasValue;
+    }
+
+    public async Task<ApiResponse<Application.DTOs.Vendor.VendorProfileDto>> GetVendorProfileAsync(string userId)
+    {
+        var user = await _context.Users
+            .AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == userId && u.UserType == UserType.Vendor);
+
+        if (user == null)
+            return ApiResponse<Application.DTOs.Vendor.VendorProfileDto>.ErrorResult("Vendor not found.", ResponseCodes.NOT_FOUND);
+
+        var dto = new Application.DTOs.Vendor.VendorProfileDto
+        {
+            Id = user.Id,
+            FullName = user.FullName,
+            Email = user.Email,
+            PhoneNumber = user.PhoneNumber,
+            BusinessName = user.BusinessName,
+            BusinessCategory = user.BusinessCategory,
+            BusinessLocation = user.BusinessLocation,
+            ShopDescription = user.ShopDescription,
+            BusinessLogoUrl = user.BusinessLogoUrl,
+            CAC_RC_Number = user.CAC_RC_Number,
+            DeliveryMethod = user.DeliveryMethod,
+            EmailVerified = user.EmailVerified,
+            CreatedAt = user.CreatedAt,
+            UpdatedAt = user.UpdatedAt
+        };
+
+        return ApiResponse<Application.DTOs.Vendor.VendorProfileDto>.SuccessResult(dto, "Profile retrieved successfully.");
+    }
+
+    public async Task<ApiResponse<bool>> UpdateVendorProfileAsync(string userId, Application.DTOs.Vendor.UpdateVendorProfileDto dto)
+    {
+        var user = await _context.Users
+            .FirstOrDefaultAsync(u => u.Id == userId && u.UserType == UserType.Vendor);
+
+        if (user == null)
+            return ApiResponse<bool>.ErrorResult("Vendor not found.", ResponseCodes.NOT_FOUND);
+
+        user.BusinessCategory = dto.BusinessCategory;
+        user.BusinessLocation = dto.BusinessLocation;
+        user.ShopDescription = dto.ShopDescription;
+        user.BusinessLogoUrl = dto.BusinessLogoUrl;
+        user.CAC_RC_Number = dto.CAC_RC_Number;
+        user.DeliveryMethod = dto.DeliveryMethod;
+        user.UpdatedAt = DateTime.UtcNow;
+
+        await _context.SaveChangesAsync();
+        return ApiResponse<bool>.SuccessResult(true, "Profile updated successfully.");
     }
 }

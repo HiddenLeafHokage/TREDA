@@ -5,15 +5,29 @@ using System.Security.Cryptography;
 using System.Text;
 using Application.Interfaces;
 using Domain.Entities;
+using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 
 namespace Application.Services;
 
 public class TokenService : ITokenService
 {
-    private const string SecretKey = "your-super-secret-key-with-at-least-32-characters-here-for-treda-app-2024";
-    private static readonly SymmetricSecurityKey SecurityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(SecretKey));
-     public string GenerateToken(User user, int expirationMinutes = 60)
+    private readonly IConfiguration _configuration;
+    private readonly SymmetricSecurityKey _securityKey;
+    private readonly string _issuer;
+    private readonly string _audience;
+    
+    public TokenService(IConfiguration configuration)
+    {
+        _configuration = configuration;
+        var secretKey = _configuration["Jwt:Secret"] 
+            ?? throw new InvalidOperationException("JWT Secret is not configured in appsettings.json");
+        _securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
+        _issuer = _configuration["Jwt:Issuer"] ?? "treda-api";
+        _audience = _configuration["Jwt:Audience"] ?? "treda-client";
+    }
+    
+    public string GenerateToken(User user, int expirationMinutes = 60)
     {
         try
         {
@@ -28,11 +42,11 @@ public class TokenService : ITokenService
                 new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
             };
             
-            var creds = new SigningCredentials(SecurityKey, SecurityAlgorithms.HmacSha256);
+            var creds = new SigningCredentials(_securityKey, SecurityAlgorithms.HmacSha256);
             
             var token = new JwtSecurityToken(
-                issuer: "treda-api",
-                audience: "treda-client",
+                issuer: _issuer,
+                audience: _audience,
                 claims: claims,
                 expires: DateTime.UtcNow.AddMinutes(expirationMinutes),
                 signingCredentials: creds);
@@ -66,7 +80,7 @@ public class TokenService : ITokenService
             ValidateAudience = false,
             ValidateIssuer = false,
             ValidateIssuerSigningKey = true,
-            IssuerSigningKey = SecurityKey,
+            IssuerSigningKey = _securityKey,
             ValidateLifetime = false // We don't validate lifetime here
         };
         
@@ -88,10 +102,5 @@ public class TokenService : ITokenService
         {
             throw new SecurityTokenException("Invalid token");
         }
-    }
-
-    public string GenerateToken(User user)
-    {
-        throw new NotImplementedException();
     }
 }
