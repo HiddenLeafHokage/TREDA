@@ -17,6 +17,9 @@ public class UpdateVendorProfileDto
 
     public string? BusinessLogoUrl { get; set; }
 
+    [RegularExpression(@"^\+?[\d\s\-]{10,20}$", ErrorMessage = "Use a valid format e.g. +2348012345678 or 09012345678")]
+    public string? PhoneNumber { get; set; }
+
     [Required(ErrorMessage = "Delivery method is required")]
     public DeliveryMethod DeliveryMethod { get; set; }
 

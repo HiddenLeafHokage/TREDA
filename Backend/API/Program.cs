@@ -157,6 +157,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseStaticFiles(); // serve wwwroot (e.g. /uploads/xxx for uploaded files)
 app.UseCors("AllowAll");
 app.UseAuthentication();
 app.UseAuthorization();

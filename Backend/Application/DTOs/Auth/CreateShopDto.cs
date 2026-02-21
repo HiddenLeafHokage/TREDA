@@ -22,7 +22,7 @@ namespace Application.DTOs.Auth
     public string Email { get; set; } = string.Empty;
     
     [Required(ErrorMessage = "Phone number is required")]
-    [Phone(ErrorMessage = "Invalid phone number format")]
+    [RegularExpression(@"^\+?[\d\s\-]{10,20}$", ErrorMessage = "Use a valid format e.g. +2348012345678 or 09012345678")]
     public string PhoneNumber { get; set; } = string.Empty;
     
     [Required(ErrorMessage = "Password is required")]

@@ -63,6 +63,14 @@ public class AuthController : ControllerBase
             _ => StatusCode(500, result)
         };
     }
+
+    /// <summary>Resend email verification code (e.g. if user lost or deleted the first email).</summary>
+    [HttpPost("resend-verification-email")]
+    public async Task<ActionResult<ApiResponse<bool>>> ResendVerificationEmail(ResendVerificationEmailDto dto)
+    {
+        var result = await _authService.ResendVerificationEmailAsync(dto.Email);
+        return Ok(result);
+    }
     
     [HttpPost("login")]
     public async Task<ActionResult<ApiResponse<AuthResponseDto>>> Login(LoginDto loginDto)

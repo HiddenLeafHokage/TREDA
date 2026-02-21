@@ -16,6 +16,7 @@ public interface IAuthService
     // Enhanced methods with ApiResponse
     Task<ApiResponse<AuthResponseDto>> RegisterVendorAsync(VendorRegistrationDto vendorDto);
     Task<ApiResponse<bool>> VerifyEmailAsync(string email, string verificationCode);
+    Task<ApiResponse<bool>> ResendVerificationEmailAsync(string email);
     Task<ApiResponse<bool>> RequestPasswordResetAsync(ForgotPasswordDto forgotPasswordDto);
     Task<ApiResponse<bool>> VerifyResetCodeAsync(VerifyResetCodeDto verifyResetCodeDto);
     Task<ApiResponse<bool>> ResetPasswordAsync(ResetPasswordDto resetPasswordDto);

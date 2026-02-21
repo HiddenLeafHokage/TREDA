@@ -44,6 +44,7 @@ public class TredaDbContext : DbContext
             entity.HasKey(u => u.Id);
             entity.HasIndex(u => u.Email).IsUnique();
             entity.HasIndex(u => u.GoogleId).IsUnique();
+            entity.HasIndex(u => u.PhoneNumber).IsUnique().HasFilter("[PhoneNumber] IS NOT NULL");
             entity.Property(u => u.UserType).HasConversion(UserTypeConverter);
             entity.Property(u => u.DeliveryMethod).HasConversion<string>();
 

@@ -95,12 +95,21 @@ All endpoints return a wrapper:
 | POST | `/api/auth/register-vendor` | Register vendor | No |
 | POST | `/api/auth/login` | Login (returns token) | No |
 | POST | `/api/auth/verify-email` | Verify email with OTP | No |
+| POST | `/api/auth/resend-verification-email` | Resend verification code (e.g. if deleted/lost) | No |
 | POST | `/api/auth/forgot-password` | Request password reset | No |
 | POST | `/api/auth/verify-reset-code` | Verify reset code | No |
 | POST | `/api/auth/reset-password` | Reset password with code | No |
 | POST | `/api/auth/refresh-token` | Refresh JWT | No |
 | POST | `/api/auth/google-login` | Google login (not implemented) | No |
 | GET | `/api/auth/profile` | Current user profile | **Bearer** |
+
+---
+
+### Upload (`/api/upload`) – no auth (or add Bearer if you want)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/upload` | Upload file (form-data, key `file`). Allowed: .jpg, .jpeg, .png, .gif, .webp, .pdf. Max 5 MB. Returns `{ data: { url, fileName } }`. Use `url` (e.g. `/uploads/xxx`) – prepend API base URL for full URL. |
 
 ---
 
@@ -136,7 +145,7 @@ All endpoints return a wrapper:
 
 ---
 
-### Orders (`/api/orders`) – **Bearer (Seller/Admin)**
+### Orders (`/api/orders`) – **Bearer (Vendor/Admin)**
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -185,6 +194,8 @@ All endpoints return a wrapper:
 - `businessLogoUrl` (optional)
 - **deliveryMethod:** `1` = PickupOnly, `2` = DeliveryOnly, `3` = Both  
 - **cac_RC_Number:** format `RC-123456`
+- **phoneNumber:** One phone per account. Accepted formats: `+2348012345678`, `09012345678`, etc. If the number is already used by another account, registration/update returns conflict.
+- **Flow: Register → Verify email → Login.** Login is allowed only after email is verified. Verification code expires in **45 minutes**; use **POST /api/auth/resend-verification-email** with `{ "email": "..." }` to get a new code (only if not yet verified; if already verified, API returns "Email is already verified").
 
 ### GET /api/categories (list categories)
 No body. Returns list of categories with `id`, `name`, `slug`, `description`, `displayOrder`. Use `id` (e.g. `cat-phones`, `cat-electronics`) in product create/update.

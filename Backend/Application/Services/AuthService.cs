@@ -1,5 +1,6 @@
 // Application/Services/AuthService.cs
 using System.Security.Claims;
+using Application.Constants;
 using Application.DTOs.Auth;
 using Application.DTOs.Common;
 using Application.Interfaces;
@@ -125,6 +126,15 @@ public class AuthService : IAuthService
                 return ApiResponse<AuthResponseDto>.ErrorResult(
                     "Invalid email address or password.",
                     ResponseCodes.UNAUTHORIZED
+                );
+            }
+
+            // Real-world flow: verify email before login
+            if (!user.EmailVerified)
+            {
+                return ApiResponse<AuthResponseDto>.ErrorResult(
+                    "Please verify your email before logging in. Check your inbox for the code, or use resend verification.",
+                    ResponseCodes.VALIDATION_ERROR
                 );
             }
             
@@ -272,13 +282,27 @@ public class AuthService : IAuthService
     {
         try
         {
-            // Check if user already exists
+            // Check if user already exists (email)
             if (await _context.Users.AnyAsync(u => u.Email == vendorDto.Email))
             {
                 return ApiResponse<AuthResponseDto>.ErrorResult(
                     "User with this email address already exists.", 
                     ResponseCodes.CONFLICT
                 );
+            }
+
+            // One phone number per account: check if phone already used by another user
+            var normalizedPhone = NormalizePhone(vendorDto.PhoneNumber);
+            if (!string.IsNullOrEmpty(normalizedPhone))
+            {
+                var existingPhones = await _context.Users.Where(u => u.PhoneNumber != null).Select(u => u.PhoneNumber).ToListAsync();
+                if (existingPhones.Any(p => NormalizePhone(p) == normalizedPhone))
+                {
+                    return ApiResponse<AuthResponseDto>.ErrorResult(
+                        "This phone number is already linked to another account.",
+                        ResponseCodes.CONFLICT
+                    );
+                }
             }
             
             // Create new seller user with complete profile
@@ -400,6 +424,43 @@ public class AuthService : IAuthService
             return ApiResponse<bool>.ErrorResult(
                 "An error occurred during email verification.",
                 ResponseCodes.SERVER_ERROR
+            );
+        }
+    }
+
+    public async Task<ApiResponse<bool>> ResendVerificationEmailAsync(string email)
+    {
+        try
+        {
+            var user = await _context.Users
+                .FirstOrDefaultAsync(u => u.Email == email && u.IsActive);
+
+            if (user == null)
+            {
+                // Don't reveal whether email exists
+                return ApiResponse<bool>.SuccessResult(
+                    true,
+                    "If an account with this email exists, a new verification code has been sent."
+                );
+            }
+
+            if (user.EmailVerified)
+            {
+                return ApiResponse<bool>.SuccessResult(true, "Email is already verified. You can log in.");
+            }
+
+            await GenerateAndSendEmailVerificationCode(user.Id);
+            return ApiResponse<bool>.SuccessResult(
+                true,
+                "A new verification code has been sent. It expires in 45 minutes."
+            );
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error resending verification email for: {Email}", email);
+            return ApiResponse<bool>.SuccessResult(
+                true,
+                "If an account with this email exists, a new verification code has been sent."
             );
         }
     }
@@ -560,7 +621,7 @@ public class AuthService : IAuthService
         {
             UserId = userId,
             Token = verificationCode,
-            ExpiresAt = DateTime.UtcNow.AddHours(24), // 24 hours expiry
+            ExpiresAt = DateTime.UtcNow.AddMinutes(AppConstants.EmailVerificationExpiryMinutes),
             IsUsed = false
         };
         
@@ -631,7 +692,34 @@ public class AuthService : IAuthService
         user.DeliveryMethod = dto.DeliveryMethod;
         user.UpdatedAt = DateTime.UtcNow;
 
+        if (dto.PhoneNumber != null)
+        {
+            var normalizedNew = NormalizePhone(dto.PhoneNumber);
+            if (!string.IsNullOrEmpty(normalizedNew))
+            {
+                var otherPhones = await _context.Users.Where(u => u.Id != userId && u.PhoneNumber != null).Select(u => u.PhoneNumber).ToListAsync();
+                if (otherPhones.Any(p => NormalizePhone(p) == normalizedNew))
+                    return ApiResponse<bool>.ErrorResult("This phone number is already linked to another account.", ResponseCodes.CONFLICT);
+                user.PhoneNumber = dto.PhoneNumber.Trim();
+            }
+            else
+                user.PhoneNumber = dto.PhoneNumber;
+        }
+
         await _context.SaveChangesAsync();
         return ApiResponse<bool>.SuccessResult(true, "Profile updated successfully.");
+    }
+
+    /// <summary>Normalize for uniqueness: digits only; leading 0 treated as Nigerian (+234).</summary>
+    private static string? NormalizePhone(string? phone)
+    {
+        if (string.IsNullOrWhiteSpace(phone)) return null;
+        var digits = new string(phone.Where(char.IsDigit).ToArray());
+        if (digits.Length < 10) return null;
+        if (digits.StartsWith("0") && digits.Length >= 10)
+            digits = "234" + digits.TrimStart('0');
+        else if (!digits.StartsWith("234") && digits.Length >= 10)
+            digits = "234" + digits;
+        return digits;
     }
 }
