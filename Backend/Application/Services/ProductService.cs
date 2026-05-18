@@ -15,11 +15,13 @@ public class ProductService : IProductService
 {
     private readonly TredaDbContext _context;
     private readonly ILogger<ProductService> _logger;
+    private readonly IVendorTrafficService _traffic;
 
-    public ProductService(TredaDbContext context, ILogger<ProductService> logger)
+    public ProductService(TredaDbContext context, ILogger<ProductService> logger, IVendorTrafficService traffic)
     {
         _context = context;
         _logger = logger;
+        _traffic = traffic;
     }
 
     public async Task<ApiResponse<ProductResponseDto>> CreateAsync(string vendorId, CreateProductDto dto)
@@ -88,6 +90,40 @@ public class ProductService : IProductService
         return ApiResponse<List<ProductResponseDto>>.SuccessResult(dtos);
     }
 
+    public async Task<ApiResponse<PagedListDto<ProductResponseDto>>> GetVendorProductsAsync(string vendorId, string? search, string? categoryId, int page, int pageSize)
+    {
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 200);
+
+        var query = _context.Products
+            .Include(p => p.Category)
+            .Where(p => p.VendorId == vendorId);
+
+        if (!string.IsNullOrWhiteSpace(categoryId))
+            query = query.Where(p => p.CategoryId == categoryId);
+        if (!string.IsNullOrWhiteSpace(search))
+            query = query.Where(p => p.Name.Contains(search) || (p.Description != null && p.Description.Contains(search)));
+
+        var total = await query.CountAsync();
+        var list = await query
+            .OrderByDescending(p => p.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        var pageDto = new PagedListDto<ProductResponseDto>
+        {
+            Items = list.Select(MapToDto).ToList(),
+            Page = page,
+            PageSize = pageSize,
+            TotalCount = total,
+            EmptyStateMessage = total == 0 ? AppConstants.EmptyStateMessages.ProductsNone : null
+        };
+
+        var msg = total == 0 ? AppConstants.EmptyStateMessages.ProductsNone : "Products loaded.";
+        return ApiResponse<PagedListDto<ProductResponseDto>>.SuccessResult(pageDto, msg);
+    }
+
     public async Task<ApiResponse<ProductResponseDto>> UpdateAsync(string productId, string vendorId, UpdateProductDto dto)
     {
         var product = await _context.Products
@@ -154,7 +190,8 @@ public class ProductService : IProductService
             TotalSales = totalSales,
             OrdersToday = ordersToday,
             PendingOrders = pendingOrders,
-            WalletBalance = walletBalance
+            WalletBalance = walletBalance,
+            SalesInsight = totalSales <= 0 ? AppConstants.EmptyStateMessages.DashboardNoRevenueYet : null
         };
         return ApiResponse<VendorDashboardStatsDto>.SuccessResult(stats);
     }
@@ -170,7 +207,7 @@ public class ProductService : IProductService
             .ToListAsync();
 
         if (productIds.Count == 0)
-            return ApiResponse<List<ProductResponseDto>>.SuccessResult(new List<ProductResponseDto>());
+            return ApiResponse<List<ProductResponseDto>>.SuccessResult(new List<ProductResponseDto>(), AppConstants.EmptyStateMessages.BestSellingNone);
 
         var products = await _context.Products
             .Include(p => p.Category)
@@ -178,6 +215,80 @@ public class ProductService : IProductService
             .ToListAsync();
         var ordered = productIds.Select(id => products.First(p => p.Id == id)).Select(MapToDto).ToList();
         return ApiResponse<List<ProductResponseDto>>.SuccessResult(ordered);
+    }
+
+    public async Task<ApiResponse<List<ProductResponseDto>>> ListPublicAsync(string? search, string? categoryId, int page = 1, int pageSize = 20)
+    {
+        var query = _context.Products
+            .Include(p => p.Category)
+            .Where(p => p.IsActive);
+
+        if (!string.IsNullOrWhiteSpace(categoryId))
+            query = query.Where(p => p.CategoryId == categoryId);
+        if (!string.IsNullOrWhiteSpace(search))
+            query = query.Where(p => p.Name.Contains(search) || (p.Description != null && p.Description.Contains(search)));
+
+        var list = await query
+            .OrderByDescending(p => p.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        if (!string.IsNullOrWhiteSpace(search))
+            await _traffic.RecordSearchExposureAsync(list.Select(p => p.VendorId).Distinct().ToList(), search);
+
+        var mapped = list.Select(MapToDto).ToList();
+        var msg = mapped.Count == 0 ? AppConstants.EmptyStateMessages.PublicProductsNone : "Products loaded.";
+        return ApiResponse<List<ProductResponseDto>>.SuccessResult(mapped, msg);
+    }
+
+    public async Task<ApiResponse<ProductWithVendorDto>> GetPublicByIdAsync(string productId)
+    {
+        var product = await _context.Products
+            .Include(p => p.Category)
+            .Include(p => p.Vendor)
+            .FirstOrDefaultAsync(p => p.Id == productId && p.IsActive);
+        if (product == null)
+            return ApiResponse<ProductWithVendorDto>.ErrorResult("Product not found.", ResponseCodes.NOT_FOUND);
+
+        var dto = new ProductWithVendorDto
+        {
+            Id = product.Id,
+            Name = product.Name,
+            Description = product.Description,
+            Price = product.Price,
+            CategoryId = product.CategoryId,
+            CategoryName = product.Category?.Name ?? "",
+            Condition = product.Condition.ToString(),
+            Location = product.Location,
+            ImageUrls = product.ImageUrls ?? new List<string>(),
+            StockQuantity = product.StockQuantity,
+            IsActive = product.IsActive,
+            VendorId = product.VendorId,
+            CreatedAt = product.CreatedAt,
+            UpdatedAt = product.UpdatedAt,
+            VendorName = product.Vendor?.FullName,
+            VendorEmail = product.Vendor?.Email,
+            VendorPhone = product.Vendor?.PhoneNumber,
+            BusinessName = product.Vendor?.BusinessName,
+            BusinessLocation = product.Vendor?.BusinessLocation
+        };
+        await _traffic.RecordProductViewAsync(product.VendorId, product.Id);
+        return ApiResponse<ProductWithVendorDto>.SuccessResult(dto);
+    }
+
+    public async Task<ApiResponse<bool>> RecordPublicProductEngagementAsync(string productId, VendorTrafficEventType eventType)
+    {
+        if (eventType is not (VendorTrafficEventType.ClickThrough or VendorTrafficEventType.Favourite))
+            return ApiResponse<bool>.ErrorResult("Only ClickThrough or Favourite are allowed for this endpoint.", ResponseCodes.VALIDATION_ERROR);
+
+        var product = await _context.Products.AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == productId && p.IsActive);
+        if (product == null)
+            return ApiResponse<bool>.ErrorResult("Product not found.", ResponseCodes.NOT_FOUND);
+
+        await _traffic.RecordEngagementAsync(product.VendorId, product.Id, eventType);
+        return ApiResponse<bool>.SuccessResult(true, "Engagement recorded.");
     }
 
     private static ProductResponseDto MapToDto(Product p)

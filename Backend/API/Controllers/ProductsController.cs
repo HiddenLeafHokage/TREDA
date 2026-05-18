@@ -25,11 +25,25 @@ public class ProductsController : ControllerBase
     private string? SellerId => User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
     [HttpGet]
-    public async Task<ActionResult<ApiResponse<List<ProductResponseDto>>>> GetMyProducts()
+    public async Task<ActionResult<ApiResponse<PagedListDto<ProductResponseDto>>>> GetMyProducts(
+        [FromQuery] string? search,
+        [FromQuery] string? categoryId,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20)
+    {
+        if (string.IsNullOrEmpty(SellerId))
+            return Unauthorized(ApiResponse<PagedListDto<ProductResponseDto>>.ErrorResult("Unauthorized", ResponseCodes.UNAUTHORIZED));
+
+        var result = await _productService.GetVendorProductsAsync(SellerId, search, categoryId, page, pageSize);
+        return Ok(result);
+    }
+
+    /// <summary>All products for this vendor (no pagination). Prefer GET with page/pageSize for large catalogs.</summary>
+    [HttpGet("all")]
+    public async Task<ActionResult<ApiResponse<List<ProductResponseDto>>>> GetAllMyProducts()
     {
         if (string.IsNullOrEmpty(SellerId))
             return Unauthorized(ApiResponse<List<ProductResponseDto>>.ErrorResult("Unauthorized", ResponseCodes.UNAUTHORIZED));
-
         var result = await _productService.GetBySellerIdAsync(SellerId);
         return Ok(result);
     }

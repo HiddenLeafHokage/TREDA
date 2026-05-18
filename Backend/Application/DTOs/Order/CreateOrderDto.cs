@@ -4,8 +4,8 @@ namespace Application.DTOs.Order;
 
 public class CreateOrderDto
 {
-    [Required]
-    public string BuyerId { get; set; } = string.Empty;
+    /// <summary>Required when buyer is registered; omit for guest.</summary>
+    public string? BuyerId { get; set; }
 
     public string? ProductId { get; set; }
 
@@ -14,4 +14,11 @@ public class CreateOrderDto
 
     [MaxLength(200)]
     public string CustomerName { get; set; } = string.Empty;
+
+    [MaxLength(256)]
+    [EmailAddress]
+    public string? GuestEmail { get; set; }
+
+    [MaxLength(200)]
+    public string? GuestName { get; set; }
 }

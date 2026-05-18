@@ -81,4 +81,13 @@ public class VendorController : ControllerBase
         var result = await _productService.GetBestSellingAsync(VendorId, limit);
         return Ok(result);
     }
+
+    [HttpGet("dashboard/analytics")]
+    public async Task<ActionResult<ApiResponse<AnalyticsDto>>> GetAnalytics([FromQuery] int lastDays = 30)
+    {
+        if (string.IsNullOrEmpty(VendorId))
+            return Unauthorized(ApiResponse<AnalyticsDto>.ErrorResult("Unauthorized", ResponseCodes.UNAUTHORIZED));
+        var result = await _orderService.GetVendorAnalyticsAsync(VendorId, lastDays);
+        return Ok(result);
+    }
 }

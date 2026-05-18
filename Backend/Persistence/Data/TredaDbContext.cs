@@ -32,6 +32,8 @@ public class TredaDbContext : DbContext
     public DbSet<ProductPromotion> ProductPromotions { get; set; }
     public DbSet<PasswordResetToken> PasswordResetTokens { get; set; }
     public DbSet<EmailVerificationToken> EmailVerificationTokens { get; set; }
+    public DbSet<VendorNotification> VendorNotifications { get; set; }
+    public DbSet<VendorTrafficEvent> VendorTrafficEvents { get; set; }
     
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -127,9 +129,9 @@ public class TredaDbContext : DbContext
             entity.Property(o => o.Amount).HasPrecision(18, 2);
             entity.Property(o => o.Status).HasConversion<string>();
             entity.HasIndex(o => o.VendorId);
-            entity.HasIndex(o => o.BuyerId);
+            entity.HasIndex(o => o.BuyerId).HasFilter("[BuyerId] IS NOT NULL");
             entity.HasOne(o => o.Vendor).WithMany().HasForeignKey(o => o.VendorId).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne(o => o.Buyer).WithMany().HasForeignKey(o => o.BuyerId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(o => o.Buyer).WithMany().HasForeignKey(o => o.BuyerId).OnDelete(DeleteBehavior.SetNull).IsRequired(false);
             entity.HasOne(o => o.Product).WithMany().HasForeignKey(o => o.ProductId).OnDelete(DeleteBehavior.SetNull);
         });
 
@@ -157,10 +159,10 @@ public class TredaDbContext : DbContext
         modelBuilder.Entity<Conversation>(entity =>
         {
             entity.ToTable("Conversations");
-            entity.HasKey(c => c.Id);
-            entity.HasIndex(c => new { c.VendorId, c.BuyerId, c.ProductId });
+            entity.HasIndex(c => c.VendorId);
+            entity.HasIndex(c => c.BuyerId).HasFilter("[BuyerId] IS NOT NULL");
             entity.HasOne(c => c.Vendor).WithMany().HasForeignKey(c => c.VendorId).OnDelete(DeleteBehavior.Restrict);
-            entity.HasOne(c => c.Buyer).WithMany().HasForeignKey(c => c.BuyerId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(c => c.Buyer).WithMany().HasForeignKey(c => c.BuyerId).OnDelete(DeleteBehavior.SetNull).IsRequired(false);
             entity.HasOne(c => c.Product).WithMany().HasForeignKey(c => c.ProductId).OnDelete(DeleteBehavior.SetNull);
             entity.HasMany(c => c.Messages).WithOne(m => m.Conversation).HasForeignKey(m => m.ConversationId).OnDelete(DeleteBehavior.Cascade);
         });
@@ -171,7 +173,7 @@ public class TredaDbContext : DbContext
             entity.ToTable("Messages");
             entity.HasKey(m => m.Id);
             entity.HasIndex(m => m.ConversationId);
-            entity.HasOne(m => m.Sender).WithMany().HasForeignKey(m => m.SenderId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne(m => m.Sender).WithMany().HasForeignKey(m => m.SenderId).OnDelete(DeleteBehavior.SetNull).IsRequired(false);
         });
 
         // ProductPromotion configuration
@@ -182,6 +184,27 @@ public class TredaDbContext : DbContext
             entity.Property(p => p.AmountPaid).HasPrecision(18, 2);
             entity.HasIndex(p => p.ProductId);
             entity.HasOne(p => p.Product).WithMany().HasForeignKey(p => p.ProductId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<VendorNotification>(entity =>
+        {
+            entity.ToTable("VendorNotifications");
+            entity.HasKey(n => n.Id);
+            entity.Property(n => n.Category).HasConversion<string>().HasMaxLength(32);
+            entity.Property(n => n.ActionKind).HasConversion<string>().HasMaxLength(32);
+            entity.HasIndex(n => new { n.VendorId, n.IsRead });
+            entity.HasIndex(n => new { n.VendorId, n.Category });
+            entity.HasIndex(n => n.CreatedAt);
+            entity.HasOne(n => n.Vendor).WithMany().HasForeignKey(n => n.VendorId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<VendorTrafficEvent>(entity =>
+        {
+            entity.ToTable("VendorTrafficEvents");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.EventType).HasConversion<string>().HasMaxLength(32);
+            entity.HasIndex(e => new { e.VendorId, e.EventType, e.CreatedAt });
+            entity.HasIndex(e => e.CreatedAt);
         });
     }
 }

@@ -48,10 +48,12 @@ END
 
 GO
 
--- BATCH 2: Backfill, drop old columns, add constraints (VendorId etc. now exist). Only if SellerId still there.
-IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID('Products') AND name = 'SellerId')
+-- BATCH 2: Backfill from SellerId only when that column still exists.
+-- Uses dynamic SQL so SQL Server does not compile [SellerId] after the column has already been dropped.
+IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'Products') AND name = N'SellerId')
 BEGIN
-    UPDATE [Products] SET [VendorId] = [SellerId], [CategoryId] = N'cat-other', [Condition] = N'New' WHERE [VendorId] IS NULL;
+    EXEC(N'
+    UPDATE [Products] SET [VendorId] = [SellerId], [CategoryId] = N''cat-other'', [Condition] = N''New'' WHERE [VendorId] IS NULL;
 
     ALTER TABLE [Products] DROP CONSTRAINT [FK_Products_Users_SellerId];
     DROP INDEX [IX_Products_SellerId] ON [Products];
@@ -66,6 +68,7 @@ BEGIN
     CREATE INDEX [IX_Products_VendorId] ON [Products] ([VendorId]);
     ALTER TABLE [Products] ADD CONSTRAINT [FK_Products_ProductCategories_CategoryId] FOREIGN KEY ([CategoryId]) REFERENCES [ProductCategories] ([Id]);
     ALTER TABLE [Products] ADD CONSTRAINT [FK_Products_Users_VendorId] FOREIGN KEY ([VendorId]) REFERENCES [Users] ([Id]) ON DELETE CASCADE;
+    ');
 END
 
 UPDATE [Users] SET [UserType] = N'Vendor' WHERE [UserType] = N'Seller';

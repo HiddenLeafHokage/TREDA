@@ -8,4 +8,7 @@ public class VendorDashboardStatsDto
     public int OrdersToday { get; set; }
     public int PendingOrders { get; set; }
     public decimal WalletBalance { get; set; }    // Vendor's Treda wallet (for ads)
+
+    /// <summary>Shown when there is no shipped/completed revenue yet.</summary>
+    public string? SalesInsight { get; set; }
 }

@@ -11,9 +11,15 @@ public class Conversation
     public string VendorId { get; set; } = string.Empty;
     public User? Vendor { get; set; }
 
-    [Required]
-    public string BuyerId { get; set; } = string.Empty;
+    /// <summary>Set when buyer is registered; null for guest.</summary>
+    public string? BuyerId { get; set; }
     public User? Buyer { get; set; }
+
+    [MaxLength(256)]
+    public string? GuestEmail { get; set; }
+
+    [MaxLength(200)]
+    public string? GuestName { get; set; }
 
     public string? ProductId { get; set; }
     public Product? Product { get; set; }

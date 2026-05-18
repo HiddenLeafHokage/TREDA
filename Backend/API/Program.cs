@@ -8,12 +8,16 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using System.IO;
+using System.Text.Json.Serialization;
 using Persistence.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container
-builder.Services.AddControllers();
+builder.Services.AddControllers().AddJsonOptions(o =>
+{
+    o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+});
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
@@ -37,6 +41,9 @@ builder.Services.AddScoped<IProductService, ProductService>();
 builder.Services.AddScoped<IOrderService, OrderService>();
 builder.Services.AddScoped<IWalletService, WalletService>();
 builder.Services.AddScoped<IMessageService, MessageService>();
+builder.Services.AddScoped<IVendorNotificationService, VendorNotificationService>();
+builder.Services.AddScoped<IVendorTrafficService, VendorTrafficService>();
+builder.Services.AddScoped<IVendorSearchService, VendorSearchService>();
 
 // Configure Swagger (all endpoints visible for testing and frontend integration)
 builder.Services.AddSwaggerGen(c =>
@@ -130,20 +137,39 @@ using (var scope = app.Services.CreateScope())
                 .ToList();
             var conn = db.Database.GetDbConnection();
             await conn.OpenAsync();
-            foreach (var batch in batches)
+
+            var skipLegacyProductScript = false;
+            await using (var checkCmd = conn.CreateCommand())
             {
-                if (string.IsNullOrWhiteSpace(batch)) continue;
-                await using (var cmd = conn.CreateCommand())
+                checkCmd.CommandText = """
+                    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'Products' AND COLUMN_NAME = 'VendorId'
+                    """;
+                var hasVendorId = await checkCmd.ExecuteScalarAsync();
+                if (hasVendorId != null && hasVendorId != DBNull.Value)
                 {
-                    cmd.CommandText = batch;
-                    await cmd.ExecuteNonQueryAsync();
+                    logger.LogInformation("Products.VendorId is already present; skipping ApplyProductCategoriesAndVendorId.sql.");
+                    skipLegacyProductScript = true;
                 }
             }
-            logger.LogInformation("Applied ProductCategoriesAndVendorId schema fix. VendorId column and categories are now in place.");
+
+            if (!skipLegacyProductScript)
+            {
+                foreach (var batch in batches)
+                {
+                    if (string.IsNullOrWhiteSpace(batch)) continue;
+                    await using (var cmd = conn.CreateCommand())
+                    {
+                        cmd.CommandText = batch;
+                        await cmd.ExecuteNonQueryAsync();
+                    }
+                }
+                logger.LogInformation("Applied ProductCategoriesAndVendorId schema fix. VendorId column and categories are now in place.");
+            }
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed to apply schema fix. If you see 'Invalid column name VendorId', run ApplyProductCategoriesAndVendorId.sql against (localdb)\\mssqllocaldb, database TredaDB.");
+            logger.LogError(ex, "Failed to apply schema fix. If you see 'Invalid column name VendorId' or 'SellerId', run ApplyProductCategoriesAndVendorId.sql against your SQL instance, database TredaDB (or ensure dotnet ef database update has been applied).");
         }
     }
 }

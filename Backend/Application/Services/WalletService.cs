@@ -14,11 +14,13 @@ public class WalletService : IWalletService
 {
     private readonly TredaDbContext _context;
     private readonly ILogger<WalletService> _logger;
+    private readonly IVendorNotificationService _notifications;
 
-    public WalletService(TredaDbContext context, ILogger<WalletService> logger)
+    public WalletService(TredaDbContext context, ILogger<WalletService> logger, IVendorNotificationService notifications)
     {
         _context = context;
         _logger = logger;
+        _notifications = notifications;
     }
 
     public async Task<ApiResponse<WalletBalanceDto>> GetBalanceAsync(string vendorId)
@@ -90,6 +92,7 @@ public class WalletService : IWalletService
         });
 
         await _context.SaveChangesAsync();
+        await _notifications.NotifyListingPromotedAsync(vendorId, productId, product.Name, amount);
         return ApiResponse<WalletBalanceDto>.SuccessResult(new WalletBalanceDto { Balance = wallet.Balance, VendorId = vendorId }, "Listing promoted.");
     }
 

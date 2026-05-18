@@ -18,6 +18,7 @@ Use this guide to run the API, test all endpoints in Swagger, and integrate with
      ```
    - **Important:** If the API is running, **stop it** before running `dotnet ef` (to avoid "file in use" errors). After pulling the **ProductCategoriesAndVendorRename** migration, run `dotnet ef database update --project ../Persistence` once to create the categories table and switch Products to CategoryId/Condition/Location/VendorId.
    - **If you get "Invalid column name 'VendorId'"** when calling vendor dashboard or products: the migration did not apply. Stop the API and run `dotnet ef database update --project ../Persistence` again. If that still fails with "pending model changes", run the one-time SQL script **Backend/Persistence/Scripts/ApplyProductCategoriesAndVendorId.sql** against your database (e.g. in SQL Server Management Studio), then restart the API.
+   - **Guest buyer support:** Run **Backend/Persistence/Scripts/AddGuestBuyerSupport.sql** once against TredaDB to add GuestEmail/GuestName and nullable BuyerId/SenderId (so buyers can chat and create orders without registering).
 
 3. **Run**
    ```bash
@@ -121,15 +122,31 @@ All endpoints return a wrapper:
 
 ---
 
+### Buyer – no registration (`/api/public`) – **no auth**
+
+Customers can browse, contact seller via chat, and create orders/invoices **without registering**.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/public/products` | Browse products (query: `search`, `categoryId`, `page`, `pageSize`) |
+| GET | `/api/public/products/{id}` | Product detail **with seller contact info** (name, email, phone, business) |
+| POST | `/api/public/conversations` | Guest starts chat (body: `vendorId`, `productId?`, `guestName`, `guestEmail`) |
+| GET | `/api/public/conversations/{id}/messages` | Guest loads messages (query: `guestEmail`, `page`, `pageSize`) |
+| POST | `/api/public/conversations/{id}/messages` | Guest sends message (body: `guestEmail`, `content`) |
+| POST | `/api/public/orders` | Guest creates order/invoice (body: `vendorId`, `productId?`, `guestName`, `guestEmail`, `amount`, `message?`) |
+
+---
+
 ### Vendor dashboard & profile (`/api/vendor`) – **Bearer (Vendor/Admin)**
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/vendor/profile` | Get vendor/shop profile |
 | PUT | `/api/vendor/profile` | Update vendor/shop profile |
-| GET | `/api/vendor/dashboard/stats` | Dashboard stats (sales, orders, wallet) |
+| GET | `/api/vendor/dashboard/stats` | Dashboard stats (Total Sales, Orders Today, Pending, Wallet) |
 | GET | `/api/vendor/dashboard/orders` | Recent orders (query: `from`, `to`) |
 | GET | `/api/vendor/dashboard/best-selling` | Best selling products (query: `limit`) |
+| GET | `/api/vendor/dashboard/analytics` | Performance (sales by day), Favourites/Views/etc. (query: `lastDays`) |
 
 ---
 
@@ -137,7 +154,7 @@ All endpoints return a wrapper:
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/products` | List my products |
+| GET | `/api/products` | List my products (query: `search`, `categoryId`, `page`, `pageSize` for table view) |
 | GET | `/api/products/{id}` | Get one product |
 | POST | `/api/products` | Create product |
 | PUT | `/api/products/{id}` | Update product |
@@ -149,14 +166,15 @@ All endpoints return a wrapper:
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/orders` | List my orders (query: `from`, `to`) |
+| GET | `/api/orders` | List orders (query: `from`, `to` **or** `search`, `status`, `page`, `pageSize`) |
 | GET | `/api/orders/{id}` | Get one order |
-| POST | `/api/orders` | Create order (inquiry/lead) |
+| POST | `/api/orders` | Create order (for registered buyer; body can include `guestEmail`+`guestName` for guest) |
 | PUT | `/api/orders/{id}/status` | Update order status |
+| PUT | `/api/orders/{id}` | **Negotiate invoice**: update `amount` and/or `status` (body: `amount?`, `status?`) |
 
 ---
 
-### Wallet (`/api/vendor/wallet`) – **Bearer (Seller/Admin)**
+### Wallet (`/api/vendor/wallet`) – **Bearer (Vendor/Admin)**
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -166,14 +184,15 @@ All endpoints return a wrapper:
 
 ---
 
-### Messages / Chat (`/api/messages`) – **Bearer (Buyer or Seller)**
+### Messages / Chat (`/api/messages` and `/api/public`) – **Vendor: Bearer; Guest: no auth**
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/messages/conversations` | List my conversations (vendor) |
-| GET | `/api/messages/conversations/{id}/messages` | Get messages (query: `page`, `pageSize`) |
-| POST | `/api/messages/conversations/{id}/messages` | Send message |
-| POST | `/api/messages/conversations` | Get or create conversation (body: vendorId + buyerId + productId) |
+| GET | `/api/messages/conversations` | List my conversations (vendor, Bearer) |
+| GET | `/api/messages/conversations/{id}/messages` | Get messages (vendor or registered buyer, Bearer) |
+| POST | `/api/messages/conversations/{id}/messages` | Send message (vendor or registered buyer, Bearer) |
+| POST | `/api/messages/conversations` | Get or create conversation (body: vendorId + buyerId + productId) (Bearer) |
+| **Guest (no auth):** POST `/api/public/conversations`, GET/POST `/api/public/conversations/{id}/messages` | See "Buyer – no registration" table above |
 
 ---
 

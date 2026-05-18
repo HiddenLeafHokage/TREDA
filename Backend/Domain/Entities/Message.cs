@@ -10,9 +10,15 @@ public class Message
     public string ConversationId { get; set; } = string.Empty;
     public Conversation? Conversation { get; set; }
 
-    [Required]
-    public string SenderId { get; set; } = string.Empty; // User who sent (buyer or vendor)
+    /// <summary>User who sent (vendor or registered buyer); null when sent by guest.</summary>
+    public string? SenderId { get; set; }
     public User? Sender { get; set; }
+
+    [MaxLength(256)]
+    public string? GuestSenderEmail { get; set; }
+
+    [MaxLength(200)]
+    public string? GuestSenderName { get; set; }
 
     [Required]
     [MaxLength(2000)]
