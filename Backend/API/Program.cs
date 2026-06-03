@@ -87,9 +87,10 @@ try
     });
 
     // ── Database ─────────────────────────────────────────────────────────────
+    // Railway provides DATABASE_URL as postgres:// — Npgsql requires postgresql://
     var connectionString = Environment.GetEnvironmentVariable("DATABASE_URL")
         is string dbUrl && !string.IsNullOrWhiteSpace(dbUrl)
-            ? dbUrl
+            ? dbUrl.Replace("postgres://", "postgresql://", StringComparison.OrdinalIgnoreCase)
             : builder.Configuration.GetConnectionString("DefaultConnection")
               ?? throw new InvalidOperationException("No database connection string configured.");
 
