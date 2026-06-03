@@ -46,7 +46,7 @@ public class TredaDbContext : DbContext
             entity.HasKey(u => u.Id);
             entity.HasIndex(u => u.Email).IsUnique();
             entity.HasIndex(u => u.GoogleId).IsUnique();
-            entity.HasIndex(u => u.PhoneNumber).IsUnique().HasFilter("[PhoneNumber] IS NOT NULL");
+            entity.HasIndex(u => u.PhoneNumber).IsUnique().HasFilter("\"PhoneNumber\" IS NOT NULL");
             entity.Property(u => u.UserType).HasConversion(UserTypeConverter);
             entity.Property(u => u.DeliveryMethod).HasConversion<string>();
 
@@ -129,7 +129,7 @@ public class TredaDbContext : DbContext
             entity.Property(o => o.Amount).HasPrecision(18, 2);
             entity.Property(o => o.Status).HasConversion<string>();
             entity.HasIndex(o => o.VendorId);
-            entity.HasIndex(o => o.BuyerId).HasFilter("[BuyerId] IS NOT NULL");
+            entity.HasIndex(o => o.BuyerId).HasFilter("\"BuyerId\" IS NOT NULL");
             entity.HasOne(o => o.Vendor).WithMany().HasForeignKey(o => o.VendorId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(o => o.Buyer).WithMany().HasForeignKey(o => o.BuyerId).OnDelete(DeleteBehavior.SetNull).IsRequired(false);
             entity.HasOne(o => o.Product).WithMany().HasForeignKey(o => o.ProductId).OnDelete(DeleteBehavior.SetNull);
@@ -160,7 +160,7 @@ public class TredaDbContext : DbContext
         {
             entity.ToTable("Conversations");
             entity.HasIndex(c => c.VendorId);
-            entity.HasIndex(c => c.BuyerId).HasFilter("[BuyerId] IS NOT NULL");
+            entity.HasIndex(c => c.BuyerId).HasFilter("\"BuyerId\" IS NOT NULL");
             entity.HasOne(c => c.Vendor).WithMany().HasForeignKey(c => c.VendorId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(c => c.Buyer).WithMany().HasForeignKey(c => c.BuyerId).OnDelete(DeleteBehavior.SetNull).IsRequired(false);
             entity.HasOne(c => c.Product).WithMany().HasForeignKey(c => c.ProductId).OnDelete(DeleteBehavior.SetNull);

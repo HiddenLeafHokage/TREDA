@@ -30,6 +30,10 @@ public class ProductService : IProductService
         if (!categoryExists)
             return ApiResponse<ProductResponseDto>.ErrorResult("Invalid or inactive category. Use GET /api/categories for valid category IDs.", ResponseCodes.VALIDATION_ERROR);
 
+        var imageValidationError = ValidateImageUrls(dto.ImageUrls);
+        if (imageValidationError != null)
+            return ApiResponse<ProductResponseDto>.ErrorResult(imageValidationError, ResponseCodes.VALIDATION_ERROR);
+
         try
         {
             var product = new Product
@@ -41,7 +45,7 @@ public class ProductService : IProductService
                 CategoryId = dto.CategoryId,
                 Condition = dto.Condition,
                 Location = dto.Location,
-                ImageUrls = dto.ImageUrls ?? new List<string>(),
+                ImageUrls = NormalizeImageUrls(dto.ImageUrls),
                 StockQuantity = dto.StockQuantity,
                 IsActive = dto.IsActive,
                 VendorId = vendorId,
@@ -145,7 +149,14 @@ public class ProductService : IProductService
         if (dto.Price.HasValue) product.Price = dto.Price.Value;
         if (dto.Condition.HasValue) product.Condition = dto.Condition.Value;
         if (dto.Location != null) product.Location = dto.Location;
-        if (dto.ImageUrls != null) product.ImageUrls = dto.ImageUrls;
+        if (dto.ImageUrls != null)
+        {
+            var imageValidationError = ValidateImageUrls(dto.ImageUrls);
+            if (imageValidationError != null)
+                return ApiResponse<ProductResponseDto>.ErrorResult(imageValidationError, ResponseCodes.VALIDATION_ERROR);
+
+            product.ImageUrls = NormalizeImageUrls(dto.ImageUrls);
+        }
         if (dto.StockQuantity.HasValue) product.StockQuantity = dto.StockQuantity.Value;
         if (dto.IsActive.HasValue) product.IsActive = dto.IsActive.Value;
 
@@ -310,5 +321,49 @@ public class ProductService : IProductService
             CreatedAt = p.CreatedAt,
             UpdatedAt = p.UpdatedAt
         };
+    }
+
+    private static List<string> NormalizeImageUrls(List<string>? imageUrls)
+    {
+        return imageUrls?
+            .Select(u => u?.Trim())
+            .Where(u => !string.IsNullOrWhiteSpace(u))
+            .Select(u => u!.StartsWith("uploads/", StringComparison.OrdinalIgnoreCase) ? $"/{u}" : u)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList() ?? new List<string>();
+    }
+
+    private static string? ValidateImageUrls(List<string>? imageUrls)
+    {
+        if (imageUrls == null || imageUrls.Count == 0)
+            return null;
+
+        foreach (var rawUrl in imageUrls)
+        {
+            var url = rawUrl?.Trim();
+            if (string.IsNullOrWhiteSpace(url))
+                continue;
+
+            if (url.StartsWith("blob:", StringComparison.OrdinalIgnoreCase))
+                return "Product image URLs cannot be browser blob URLs. Upload the image with POST /api/upload first, then save the returned data.url in imageUrls.";
+
+            if (url.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
+                return "Product image URLs cannot be local file URLs. Upload the image with POST /api/upload first, then save the returned data.url in imageUrls.";
+
+            if (url.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                return "Product image URLs cannot be data URLs. Upload the image with POST /api/upload first, then save the returned data.url in imageUrls.";
+
+            if (url.StartsWith("/uploads/", StringComparison.OrdinalIgnoreCase) ||
+                url.StartsWith("uploads/", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (Uri.TryCreate(url, UriKind.Absolute, out var parsed) &&
+                (parsed.Scheme == Uri.UriSchemeHttp || parsed.Scheme == Uri.UriSchemeHttps))
+                continue;
+
+            return $"Invalid product image URL '{url}'. Use an http/https URL or upload the image with POST /api/upload and save the returned data.url.";
+        }
+
+        return null;
     }
 }

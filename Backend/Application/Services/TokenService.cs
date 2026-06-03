@@ -69,8 +69,20 @@ public class TokenService : ITokenService
     
     public bool ValidateRefreshToken(User user, string refreshToken)
     {
-        return user.RefreshToken == refreshToken && 
+        return user.RefreshToken == refreshToken &&
                user.RefreshTokenExpiryTime > DateTime.UtcNow;
+    }
+
+    public string GenerateRandomCode(int length = 6)
+    {
+        const string digits = "0123456789";
+        var code = new char[length];
+        var data = new byte[length];
+        using var rng = RandomNumberGenerator.Create();
+        rng.GetBytes(data);
+        for (var i = 0; i < length; i++)
+            code[i] = digits[data[i] % digits.Length];
+        return new string(code);
     }
     
     public ClaimsPrincipal GetPrincipalFromExpiredToken(string token)

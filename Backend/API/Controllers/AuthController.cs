@@ -1,5 +1,6 @@
 // API/Controllers/AuthController.cs
 using API.Attributes;
+using Microsoft.AspNetCore.RateLimiting;
 using Application.Constants;
 using Application.DTOs.Auth;
 using Application.DTOs.Common;
@@ -12,6 +13,7 @@ namespace API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[EnableRateLimiting("auth")]
 public class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;

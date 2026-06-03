@@ -1,192 +1,272 @@
-// API/Program.cs
+using API.Json;
 using Application.Interfaces;
 using Application.Services;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.OpenApi.Models;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using System.Text;
-using System.IO;
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 using Persistence.Data;
+using Prometheus;
+using Serilog;
+using Serilog.Formatting.Compact;
 
-var builder = WebApplication.CreateBuilder(args);
+// Bootstrap Serilog before the host is built so startup errors are captured
+Log.Logger = new LoggerConfiguration()
+    .WriteTo.Console()
+    .CreateBootstrapLogger();
 
-// Add services to the container
-builder.Services.AddControllers().AddJsonOptions(o =>
+try
 {
-    o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
-});
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+    var builder = WebApplication.CreateBuilder(args);
 
-// Configure SQL Server (Local - Fast & Free for Development)
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? "Server=(localdb)\\mssqllocaldb;Database=TredaDB;Trusted_Connection=true;TrustServerCertificate=true;";
-
-builder.Services.AddDbContext<TredaDbContext>(options =>
-{
-    options.UseSqlServer(connectionString);
-    // Allow migrations to run even when EF detects minor model/snapshot drift (e.g. value comparer)
-    options.ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning));
-});
-
-// Register services
-builder.Services.AddScoped<ITokenService, TokenService>();
-builder.Services.AddScoped<IAuthService, AuthService>();
-builder.Services.AddScoped<IEmailService, EmailService>();
-builder.Services.AddScoped<ITokenGenerator, TokenGenerator>();
-builder.Services.AddScoped<IProductService, ProductService>();
-builder.Services.AddScoped<IOrderService, OrderService>();
-builder.Services.AddScoped<IWalletService, WalletService>();
-builder.Services.AddScoped<IMessageService, MessageService>();
-builder.Services.AddScoped<IVendorNotificationService, VendorNotificationService>();
-builder.Services.AddScoped<IVendorTrafficService, VendorTrafficService>();
-builder.Services.AddScoped<IVendorSearchService, VendorSearchService>();
-
-// Configure Swagger (all endpoints visible for testing and frontend integration)
-builder.Services.AddSwaggerGen(c =>
-{
-    c.SwaggerDoc("v1", new OpenApiInfo { 
-        Title = "Treda API", 
-        Version = "v1",
-        Description = "API for Treda - Connect Sell Grow. Use **Authorize** with Bearer token (from login/register) to test protected endpoints.",
-        Contact = new OpenApiContact
-        {
-            Name = "Treda Support",
-            Email = "support@treda.com"
-        }
-    });
-    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    // ── Serilog ──────────────────────────────────────────────────────────────
+    builder.Host.UseSerilog((ctx, services, config) =>
     {
-        Description = "JWT Authorization: Bearer {token}. Get token from POST /api/auth/login or register-vendor.",
-        Name = "Authorization",
-        In = ParameterLocation.Header,
-        Type = SecuritySchemeType.ApiKey,
-        Scheme = "Bearer"
+        config.ReadFrom.Configuration(ctx.Configuration)
+              .ReadFrom.Services(services)
+              .Enrich.FromLogContext();
+
+        if (ctx.HostingEnvironment.IsDevelopment())
+            config.WriteTo.Console();
+        else
+            config.WriteTo.Console(new CompactJsonFormatter()); // structured JSON for Railway log drain
     });
-    c.AddSecurityRequirement(new OpenApiSecurityRequirement
+
+    // ── Sentry ───────────────────────────────────────────────────────────────
+    builder.WebHost.UseSentry(o =>
     {
+        o.Dsn = builder.Configuration["Sentry:Dsn"] ?? "";
+        o.Environment = builder.Environment.EnvironmentName;
+        o.TracesSampleRate = builder.Environment.IsDevelopment() ? 1.0 : 0.1;
+        o.SendDefaultPii = false;
+        o.AttachStacktrace = true;
+    });
+
+    // ── Controllers ──────────────────────────────────────────────────────────
+    builder.Services.AddControllers().AddJsonOptions(o =>
+    {
+        o.JsonSerializerOptions.Converters.Add(new ProductConditionJsonConverter());
+        o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+    });
+    builder.Services.AddEndpointsApiExplorer();
+
+    // ── Swagger (development only) ────────────────────────────────────────────
+    builder.Services.AddSwaggerGen(c =>
+    {
+        c.SwaggerDoc("v1", new OpenApiInfo
         {
-            new OpenApiSecurityScheme
+            Title = "Treda API",
+            Version = "v1",
+            Description = "API for Treda — Connect Sell Grow.",
+            Contact = new OpenApiContact { Name = "Treda Support", Email = "support@treda.com" }
+        });
+        c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+        {
+            Description = "JWT Authorization: Bearer {token}",
+            Name = "Authorization",
+            In = ParameterLocation.Header,
+            Type = SecuritySchemeType.ApiKey,
+            Scheme = "Bearer"
+        });
+        c.AddSecurityRequirement(new OpenApiSecurityRequirement
+        {
             {
-                Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" }
-            },
-            Array.Empty<string>()
+                new OpenApiSecurityScheme
+                {
+                    Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" }
+                },
+                Array.Empty<string>()
+            }
+        });
+    });
+
+    // ── Database ─────────────────────────────────────────────────────────────
+    var connectionString = Environment.GetEnvironmentVariable("DATABASE_URL")
+        is string dbUrl && !string.IsNullOrWhiteSpace(dbUrl)
+            ? dbUrl
+            : builder.Configuration.GetConnectionString("DefaultConnection")
+              ?? throw new InvalidOperationException("No database connection string configured.");
+
+    builder.Services.AddDbContext<TredaDbContext>(options =>
+    {
+        options.UseNpgsql(connectionString);
+        options.ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning));
+    });
+
+    // ── Health checks ─────────────────────────────────────────────────────────
+    builder.Services.AddHealthChecks()
+        .AddDbContextCheck<TredaDbContext>("database");
+
+    // ── Rate limiting ─────────────────────────────────────────────────────────
+    builder.Services.AddRateLimiter(options =>
+    {
+        options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+        // Auth endpoints: 10 requests per minute per IP (login, register, OTP)
+        options.AddFixedWindowLimiter("auth", o =>
+        {
+            o.Window = TimeSpan.FromMinutes(1);
+            o.PermitLimit = 10;
+            o.QueueLimit = 0;
+            o.AutoReplenishment = true;
+        });
+
+        // Public browsing: 60 requests per minute per IP
+        options.AddSlidingWindowLimiter("public", o =>
+        {
+            o.Window = TimeSpan.FromMinutes(1);
+            o.SegmentsPerWindow = 6;
+            o.PermitLimit = 60;
+            o.QueueLimit = 0;
+        });
+
+        // Upload: 20 requests per minute per IP
+        options.AddFixedWindowLimiter("uploads", o =>
+        {
+            o.Window = TimeSpan.FromMinutes(1);
+            o.PermitLimit = 20;
+            o.QueueLimit = 0;
+            o.AutoReplenishment = true;
+        });
+    });
+
+    // ── Application services ─────────────────────────────────────────────────
+    builder.Services.AddScoped<ITokenService, TokenService>();
+    builder.Services.AddScoped<IAuthService, AuthService>();
+    builder.Services.AddScoped<IEmailService, EmailService>();
+    builder.Services.AddScoped<IProductService, ProductService>();
+    builder.Services.AddScoped<IOrderService, OrderService>();
+    builder.Services.AddScoped<IWalletService, WalletService>();
+    builder.Services.AddScoped<IMessageService, MessageService>();
+    builder.Services.AddScoped<IVendorNotificationService, VendorNotificationService>();
+    builder.Services.AddScoped<IVendorTrafficService, VendorTrafficService>();
+    builder.Services.AddScoped<IVendorSearchService, VendorSearchService>();
+
+    // ── JWT Authentication ────────────────────────────────────────────────────
+    var jwtSecret = builder.Configuration["Jwt:Secret"]
+        ?? throw new InvalidOperationException("JWT Secret is not configured");
+    var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "treda-api";
+    var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "treda-client";
+
+    builder.Services.AddAuthentication(options =>
+    {
+        options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+        options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+    })
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret)),
+            ValidateIssuer = true,
+            ValidIssuer = jwtIssuer,
+            ValidateAudience = true,
+            ValidAudience = jwtAudience,
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.Zero
+        };
+    });
+
+    // ── CORS ──────────────────────────────────────────────────────────────────
+    builder.Services.AddCors(options =>
+    {
+        if (builder.Environment.IsDevelopment())
+        {
+            options.AddPolicy("CorsPolicy", policy =>
+                policy.SetIsOriginAllowed(_ => true)
+                      .AllowAnyMethod()
+                      .AllowAnyHeader()
+                      .AllowCredentials());
+        }
+        else
+        {
+            var allowedOrigins = builder.Configuration
+                .GetSection("Cors:AllowedOrigins")
+                .Get<string[]>() ?? Array.Empty<string>();
+
+            options.AddPolicy("CorsPolicy", policy =>
+                policy.WithOrigins(allowedOrigins)
+                      .AllowAnyMethod()
+                      .AllowAnyHeader()
+                      .AllowCredentials());
         }
     });
-});
 
+    // ─────────────────────────────────────────────────────────────────────────
+    var app = builder.Build();
 
-
-
-// Add logging
-builder.Services.AddLogging();
-
-// Configure JWT Authentication
-var jwtSecret = builder.Configuration["Jwt:Secret"] 
-    ?? throw new InvalidOperationException("JWT Secret is not configured");
-var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "treda-api";
-var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "treda-client";
-
-builder.Services.AddAuthentication(options =>
-{
-    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-})
-.AddJwtBearer(options =>
-{
-    options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
+    // ── Auto-migrate on startup ───────────────────────────────────────────────
+    using (var scope = app.Services.CreateScope())
     {
-        ValidateIssuerSigningKey = true,
-        IssuerSigningKey = new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(
-            System.Text.Encoding.UTF8.GetBytes(jwtSecret)),
-        ValidateIssuer = true,
-        ValidIssuer = jwtIssuer,
-        ValidateAudience = true,
-        ValidAudience = jwtAudience,
-        ValidateLifetime = true,
-        ClockSkew = TimeSpan.Zero
-    };
-});
-
-// CORS - Allow all for development (easy testing)
-builder.Services.AddCors(options => 
-    options.AddPolicy("AllowAll", policy => 
-        policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
-
-
-var app = builder.Build();
-
-// One-time schema fix: if Products still has SellerId (old schema), run the migration script so VendorId exists
-using (var scope = app.Services.CreateScope())
-{
-    var db = scope.ServiceProvider.GetRequiredService<TredaDbContext>();
-    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
-    var scriptPath = Path.Combine(app.Environment.ContentRootPath, "..", "Persistence", "Scripts", "ApplyProductCategoriesAndVendorId.sql");
-    if (File.Exists(scriptPath))
-    {
+        var db = scope.ServiceProvider.GetRequiredService<TredaDbContext>();
+        var startupLogger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
         try
         {
-            var sql = await File.ReadAllTextAsync(scriptPath);
-            // Split on GO so batch 2 (which uses VendorId) is compiled after batch 1 adds the column
-            var batches = System.Text.RegularExpressions.Regex.Split(sql, @"^\s*GO\s*$", System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase)
-                .Select(b => b.Trim())
-                .Where(b => b.Length > 0)
-                .ToList();
-            var conn = db.Database.GetDbConnection();
-            await conn.OpenAsync();
-
-            var skipLegacyProductScript = false;
-            await using (var checkCmd = conn.CreateCommand())
-            {
-                checkCmd.CommandText = """
-                    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
-                    WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'Products' AND COLUMN_NAME = 'VendorId'
-                    """;
-                var hasVendorId = await checkCmd.ExecuteScalarAsync();
-                if (hasVendorId != null && hasVendorId != DBNull.Value)
-                {
-                    logger.LogInformation("Products.VendorId is already present; skipping ApplyProductCategoriesAndVendorId.sql.");
-                    skipLegacyProductScript = true;
-                }
-            }
-
-            if (!skipLegacyProductScript)
-            {
-                foreach (var batch in batches)
-                {
-                    if (string.IsNullOrWhiteSpace(batch)) continue;
-                    await using (var cmd = conn.CreateCommand())
-                    {
-                        cmd.CommandText = batch;
-                        await cmd.ExecuteNonQueryAsync();
-                    }
-                }
-                logger.LogInformation("Applied ProductCategoriesAndVendorId schema fix. VendorId column and categories are now in place.");
-            }
+            await db.Database.MigrateAsync();
+            startupLogger.LogInformation("Database migrations applied successfully.");
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed to apply schema fix. If you see 'Invalid column name VendorId' or 'SellerId', run ApplyProductCategoriesAndVendorId.sql against your SQL instance, database TredaDB (or ensure dotnet ef database update has been applied).");
+            startupLogger.LogError(ex, "Failed to apply database migrations.");
+            throw;
         }
     }
-}
 
-// Configure the HTTP request pipeline
-if (app.Environment.IsDevelopment())
+    // ── HTTP pipeline ─────────────────────────────────────────────────────────
+    if (app.Environment.IsDevelopment())
+    {
+        app.UseSwagger();
+        app.UseSwaggerUI();
+    }
+
+    app.UseSerilogRequestLogging();
+    app.UseCors("CorsPolicy");
+    app.UseHttpsRedirection();
+    app.UseStaticFiles();
+
+    // Prometheus: expose /metrics (scrape-friendly; protect with firewall or Railway private networking in prod)
+    app.UseMetricServer();
+    app.UseHttpMetrics();
+
+    app.UseRateLimiter();
+    app.UseAuthentication();
+    app.UseAuthorization();
+    app.MapControllers();
+
+    // Health check endpoint
+    app.MapHealthChecks("/health", new HealthCheckOptions
+    {
+        ResponseWriter = async (context, report) =>
+        {
+            context.Response.ContentType = "application/json";
+            var result = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                status = report.Status.ToString(),
+                checks = report.Entries.Select(e => new
+                {
+                    name = e.Key,
+                    status = e.Value.Status.ToString(),
+                    description = e.Value.Description
+                })
+            });
+            await context.Response.WriteAsync(result);
+        }
+    });
+
+    app.Run();
+}
+catch (Exception ex) when (ex is not HostAbortedException)
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
-
+    Log.Fatal(ex, "Application terminated unexpectedly.");
 }
-
-app.UseHttpsRedirection();
-app.UseStaticFiles(); // serve wwwroot (e.g. /uploads/xxx for uploaded files)
-app.UseCors("AllowAll");
-app.UseAuthentication();
-app.UseAuthorization();
-app.MapControllers();
-
-app.Run();
+finally
+{
+    Log.CloseAndFlush();
+}

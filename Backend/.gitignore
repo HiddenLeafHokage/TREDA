@@ -61,3 +61,9 @@ appsettings.Local.json
 # Temporary files
 *.tmp
 *.temp
+
+# User uploads — never commit files uploaded by users
+**/wwwroot/uploads/
+
+# Empty artifacts folder
+artifacts/

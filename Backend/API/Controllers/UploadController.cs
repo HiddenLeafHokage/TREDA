@@ -1,3 +1,5 @@
+using API.Attributes;
+using Microsoft.AspNetCore.RateLimiting;
 using Application.Constants;
 using Application.DTOs.Common;
 using Microsoft.AspNetCore.Mvc;
@@ -19,6 +21,8 @@ public class UploadController : ControllerBase
 
     /// <summary>Upload a file (image or PDF). Allowed: JPEG, PNG, GIF, WebP, PDF. Max 5 MB.</summary>
     [HttpPost]
+    [SimpleAuthorize]
+    [EnableRateLimiting("uploads")]
     [RequestSizeLimit(AppConstants.MaxUploadSizeBytes)]
     public async Task<ActionResult<ApiResponse<UploadResultDto>>> Upload(IFormFile? file, CancellationToken cancellationToken = default)
     {
@@ -45,9 +49,10 @@ public class UploadController : ControllerBase
             await using (var stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true))
                 await file.CopyToAsync(stream, cancellationToken);
 
-            var url = $"/uploads/{safeName}";
+            var relativeUrl = $"/uploads/{safeName}";
+            var absoluteUrl = $"{Request.Scheme}://{Request.Host}{relativeUrl}";
             return Ok(ApiResponse<UploadResultDto>.SuccessResult(
-                new UploadResultDto { Url = url, FileName = file.FileName },
+                new UploadResultDto { Url = absoluteUrl, RelativeUrl = relativeUrl, FileName = file.FileName },
                 "File uploaded successfully."));
         }
         catch (Exception ex)
@@ -63,5 +68,6 @@ public class UploadController : ControllerBase
 public class UploadResultDto
 {
     public string Url { get; set; } = string.Empty;
+    public string RelativeUrl { get; set; } = string.Empty;
     public string FileName { get; set; } = string.Empty;
 }

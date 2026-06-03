@@ -1,0 +1,45 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: TredaDB
+      POSTGRES_USER: treda
+      POSTGRES_PASSWORD: treda_dev_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U treda -d TredaDB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=TredaDB;Username=treda;Password=treda_dev_pass"
+      Jwt__Secret: "local-dev-secret-change-this-before-production-use"
+      Jwt__Issuer: "treda-api"
+      Jwt__Audience: "treda-client"
+      Jwt__ExpirationMinutes: "60"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - uploads_data:/app/wwwroot/uploads
+      - dataprotection_keys:/root/.aspnet/DataProtection-Keys
+
+volumes:
+  postgres_data:
+  uploads_data:
+  dataprotection_keys:

@@ -18,20 +18,17 @@ public class AuthService : IAuthService
     private readonly TredaDbContext _context;
     private readonly ITokenService _tokenService;
     private readonly IEmailService _emailService;
-    private readonly ITokenGenerator _tokenGenerator;
     private readonly ILogger<AuthService> _logger;
     
     public AuthService(
         TredaDbContext context, 
         ITokenService tokenService, 
         IEmailService emailService,
-        ITokenGenerator tokenGenerator,
         ILogger<AuthService> logger)
     {
         _context = context;
         _tokenService = tokenService;
         _emailService = emailService;
-        _tokenGenerator = tokenGenerator;
         _logger = logger;
     }
     
@@ -482,7 +479,7 @@ public class AuthService : IAuthService
             }
             
             // Generate reset token
-            var resetCode = _tokenGenerator.GenerateRandomCode();
+            var resetCode = _tokenService.GenerateRandomCode();
             var resetToken = new PasswordResetToken
             {
                 UserId = user.Id,
@@ -616,7 +613,7 @@ public class AuthService : IAuthService
     
     private async Task GenerateAndSendEmailVerificationCode(string userId)
     {
-        var verificationCode = _tokenGenerator.GenerateRandomCode();
+        var verificationCode = _tokenService.GenerateRandomCode();
         var verificationToken = new EmailVerificationToken
         {
             UserId = userId,

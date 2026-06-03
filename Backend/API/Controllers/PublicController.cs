@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.RateLimiting;
 using Application.DTOs.Common;
 using Application.DTOs.Message;
 using Application.DTOs.Order;
@@ -10,6 +11,7 @@ namespace API.Controllers;
 /// <summary>Endpoints for buyers without registration: browse products, contact seller via chat, create order/invoice.</summary>
 [ApiController]
 [Route("api/public")]
+[EnableRateLimiting("public")]
 public class PublicController : ControllerBase
 {
     private readonly IProductService _productService;

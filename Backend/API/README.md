@@ -110,7 +110,7 @@ All endpoints return a wrapper:
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/upload` | Upload file (form-data, key `file`). Allowed: .jpg, .jpeg, .png, .gif, .webp, .pdf. Max 5 MB. Returns `{ data: { url, fileName } }`. Use `url` (e.g. `/uploads/xxx`) – prepend API base URL for full URL. |
+| POST | `/api/upload` | Upload file (form-data, key `file`). Allowed: .jpg, .jpeg, .png, .gif, .webp, .pdf. Max 5 MB. Returns `{ data: { url, relativeUrl, fileName } }`. Use `data.url` directly in product `imageUrls`. Do not save browser `blob:` preview URLs. |
 
 ---
 
@@ -220,6 +220,8 @@ Customers can browse, contact seller via chat, and create orders/invoices **with
 No body. Returns list of categories with `id`, `name`, `slug`, `description`, `displayOrder`. Use `id` (e.g. `cat-phones`, `cat-electronics`) in product create/update.
 
 ### POST /api/products (create product – full info, Jiji-style)
+First upload each selected image with `POST /api/upload` using `multipart/form-data` key `file`, then put the returned `data.url` in `imageUrls`.
+
 ```json
 {
   "name": "Product name",
@@ -228,7 +230,7 @@ No body. Returns list of categories with `id`, `name`, `slug`, `description`, `d
   "categoryId": "cat-phones",
   "condition": 0,
   "location": "Lagos, Ikeja",
-  "imageUrls": ["https://example.com/1.jpg"],
+  "imageUrls": ["https://localhost:5001/uploads/abc123.jpg"],
   "stockQuantity": 10,
   "isActive": true
 }
