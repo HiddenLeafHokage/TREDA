@@ -277,23 +277,50 @@ finally
 /// <summary>
 /// Converts a postgres:// or postgresql:// URI (provided by Railway/Render)
 /// into a Npgsql key=value connection string.
-/// e.g. postgresql://user:pass@host:5432/db
-///   -> Host=host;Port=5432;Database=db;Username=user;Password=pass;SSL Mode=Require;Trust Server Certificate=true
+///
+/// Parsed manually — intentionally NOT using Uri() because replacing the scheme
+/// with http:// causes Uri to default missing ports to 80 instead of 5432.
+///
+/// Handles both formats Render/Railway provide:
+///   postgres://user:pass@host:5432/db       (external URL — has port)
+///   postgres://user:pass@host/db            (internal URL — no port, defaults to 5432)
 /// </summary>
 static string ParseDatabaseUrl(string url)
 {
-    // Normalise scheme so Uri can parse it
-    var normalized = url
-        .Replace("postgres://", "http://", StringComparison.OrdinalIgnoreCase)
-        .Replace("postgresql://", "http://", StringComparison.OrdinalIgnoreCase);
+    // Strip scheme
+    var withoutScheme = System.Text.RegularExpressions.Regex.Replace(
+        url, @"^postgres(?:ql)?://", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
-    var uri      = new Uri(normalized);
-    var userInfo = uri.UserInfo.Split(':', 2);
+    // Split credentials from host: user:pass@host:port/db
+    var atIndex  = withoutScheme.IndexOf('@');
+    var userInfo = withoutScheme[..atIndex].Split(':', 2);
     var username = Uri.UnescapeDataString(userInfo[0]);
     var password = userInfo.Length > 1 ? Uri.UnescapeDataString(userInfo[1]) : string.Empty;
-    var host     = uri.Host;
-    var port     = uri.Port > 0 ? uri.Port : 5432;
-    var database = uri.AbsolutePath.TrimStart('/');
+
+    // Split host+port from database path
+    var remainder  = withoutScheme[(atIndex + 1)..];
+    var slashIndex = remainder.IndexOf('/');
+    var hostPart   = slashIndex >= 0 ? remainder[..slashIndex]  : remainder;
+    var database   = slashIndex >= 0 ? remainder[(slashIndex + 1)..] : string.Empty;
+
+    // Remove query string from database name if present (e.g. /db?sslmode=require)
+    var queryIndex = database.IndexOf('?');
+    if (queryIndex >= 0) database = database[..queryIndex];
+
+    // Split host from optional port — default to 5432 if not present
+    var colonIndex = hostPart.LastIndexOf(':');
+    string host;
+    int    port;
+    if (colonIndex >= 0 && int.TryParse(hostPart[(colonIndex + 1)..], out var parsedPort))
+    {
+        host = hostPart[..colonIndex];
+        port = parsedPort;
+    }
+    else
+    {
+        host = hostPart;
+        port = 5432;
+    }
 
     return $"Host={host};Port={port};Database={database};Username={username};Password={password};SSL Mode=Require;Trust Server Certificate=true";
 }
