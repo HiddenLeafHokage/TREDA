@@ -87,12 +87,13 @@ try
     });
 
     // ── Database ─────────────────────────────────────────────────────────────
-    // Railway provides DATABASE_URL as postgres:// — Npgsql requires postgresql://
-    var connectionString = Environment.GetEnvironmentVariable("DATABASE_URL")
-        is string dbUrl && !string.IsNullOrWhiteSpace(dbUrl)
-            ? dbUrl.Replace("postgres://", "postgresql://", StringComparison.OrdinalIgnoreCase)
-            : builder.Configuration.GetConnectionString("DefaultConnection")
-              ?? throw new InvalidOperationException("No database connection string configured.");
+    // Railway/Render provide DATABASE_URL as postgres:// or postgresql:// URI.
+    // Npgsql UseNpgsql() requires key=value format — parse URI manually.
+    var rawDatabaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
+    var connectionString = !string.IsNullOrWhiteSpace(rawDatabaseUrl)
+        ? ParseDatabaseUrl(rawDatabaseUrl)
+        : builder.Configuration.GetConnectionString("DefaultConnection")
+          ?? throw new InvalidOperationException("No database connection string configured.");
 
     builder.Services.AddDbContext<TredaDbContext>(options =>
     {
@@ -270,4 +271,29 @@ catch (Exception ex) when (ex is not HostAbortedException)
 finally
 {
     Log.CloseAndFlush();
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+/// <summary>
+/// Converts a postgres:// or postgresql:// URI (provided by Railway/Render)
+/// into a Npgsql key=value connection string.
+/// e.g. postgresql://user:pass@host:5432/db
+///   -> Host=host;Port=5432;Database=db;Username=user;Password=pass;SSL Mode=Require;Trust Server Certificate=true
+/// </summary>
+static string ParseDatabaseUrl(string url)
+{
+    // Normalise scheme so Uri can parse it
+    var normalized = url
+        .Replace("postgres://", "http://", StringComparison.OrdinalIgnoreCase)
+        .Replace("postgresql://", "http://", StringComparison.OrdinalIgnoreCase);
+
+    var uri      = new Uri(normalized);
+    var userInfo = uri.UserInfo.Split(':', 2);
+    var username = Uri.UnescapeDataString(userInfo[0]);
+    var password = userInfo.Length > 1 ? Uri.UnescapeDataString(userInfo[1]) : string.Empty;
+    var host     = uri.Host;
+    var port     = uri.Port > 0 ? uri.Port : 5432;
+    var database = uri.AbsolutePath.TrimStart('/');
+
+    return $"Host={host};Port={port};Database={database};Username={username};Password={password};SSL Mode=Require;Trust Server Certificate=true";
 }
