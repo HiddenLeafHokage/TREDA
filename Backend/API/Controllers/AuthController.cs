@@ -81,8 +81,9 @@ public class AuthController : ControllerBase
         
         return result.Code switch
         {
-            ResponseCodes.SUCCESS => Ok(result),
-            ResponseCodes.UNAUTHORIZED => Unauthorized(result),
+            ResponseCodes.SUCCESS    => Ok(result),
+            ResponseCodes.UNAUTHORIZED  => Unauthorized(result),   // 401 — wrong credentials
+            ResponseCodes.FORBIDDEN     => StatusCode(403, result), // 403 — email not verified
             ResponseCodes.VALIDATION_ERROR => BadRequest(result),
             _ => StatusCode(500, result)
         };

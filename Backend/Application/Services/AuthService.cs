@@ -131,7 +131,7 @@ public class AuthService : IAuthService
             {
                 return ApiResponse<AuthResponseDto>.ErrorResult(
                     "Please verify your email before logging in. Check your inbox for the code, or use resend verification.",
-                    ResponseCodes.VALIDATION_ERROR
+                    ResponseCodes.FORBIDDEN
                 );
             }
             
