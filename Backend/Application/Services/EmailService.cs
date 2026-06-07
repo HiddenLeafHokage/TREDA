@@ -1,5 +1,6 @@
-using System.Net;
-using System.Net.Mail;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
 using Application.Interfaces;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -8,25 +9,25 @@ namespace Application.Services;
 
 public class EmailService : IEmailService
 {
+    private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<EmailService> _logger;
-    private readonly string _smtpUser;
-    private readonly string _smtpPassword;
-    private readonly string _fromAddress;
+    private readonly string _apiKey;
+    private readonly string _fromEmail;
     private readonly string _fromName;
     private readonly bool _isConfigured;
 
-    public EmailService(IConfiguration configuration, ILogger<EmailService> logger)
+    public EmailService(IHttpClientFactory httpClientFactory, IConfiguration configuration, ILogger<EmailService> logger)
     {
+        _httpClientFactory = httpClientFactory;
         _logger = logger;
 
-        _smtpUser     = configuration["Email:SmtpUser"]     ?? string.Empty;
-        _smtpPassword = configuration["Email:SmtpPassword"] ?? string.Empty;
-        _fromAddress  = configuration["Email:FromAddress"]  ?? _smtpUser;
-        _fromName     = configuration["Email:FromName"]     ?? "Treda";
-        _isConfigured = !string.IsNullOrWhiteSpace(_smtpUser) && !string.IsNullOrWhiteSpace(_smtpPassword);
+        _apiKey    = configuration["Brevo:ApiKey"]      ?? string.Empty;
+        _fromEmail = configuration["Brevo:FromEmail"]   ?? string.Empty;
+        _fromName  = configuration["Brevo:FromName"]    ?? "Treda";
+        _isConfigured = !string.IsNullOrWhiteSpace(_apiKey) && !string.IsNullOrWhiteSpace(_fromEmail);
 
         if (!_isConfigured)
-            _logger.LogWarning("Gmail SMTP not configured — emails will only be logged. Set Email__SmtpUser and Email__SmtpPassword env vars.");
+            _logger.LogWarning("Brevo not configured — emails will only be logged. Set Brevo__ApiKey and Brevo__FromEmail env vars.");
     }
 
     public async Task SendEmailVerificationCodeAsync(string email, string verificationCode)
@@ -54,36 +55,31 @@ public class EmailService : IEmailService
         if (!_isConfigured)
         {
             _logger.LogInformation(
-                "[EMAIL NOT SENT — SMTP not configured] To={Email} Subject={Subject}",
+                "[EMAIL NOT SENT — Brevo not configured] To={Email} Subject={Subject}",
                 toEmail, subject);
             return;
         }
 
-        using var client = new SmtpClient("smtp.gmail.com", 587)
+        var payload = JsonSerializer.Serialize(new
         {
-            EnableSsl            = true,
-            Credentials          = new NetworkCredential(_smtpUser, _smtpPassword),
-            DeliveryMethod       = SmtpDeliveryMethod.Network,
-            Timeout              = 15_000
-        };
+            sender  = new { name = _fromName, email = _fromEmail },
+            to      = new[] { new { email = toEmail } },
+            subject = subject,
+            htmlContent = htmlBody
+        });
 
-        using var message = new MailMessage
-        {
-            From       = new MailAddress(_fromAddress, _fromName),
-            Subject    = subject,
-            Body       = htmlBody,
-            IsBodyHtml = true
-        };
-        message.To.Add(toEmail);
+        using var client  = _httpClientFactory.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.brevo.com/v3/smtp/email");
+        request.Headers.Add("api-key", _apiKey);
+        request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
 
-        try
+        var response = await client.SendAsync(request);
+
+        if (!response.IsSuccessStatusCode)
         {
-            await client.SendMailAsync(message);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Gmail SMTP failed sending to {Email}", toEmail);
-            throw new InvalidOperationException($"Email delivery failed: {ex.Message}", ex);
+            var body = await response.Content.ReadAsStringAsync();
+            _logger.LogError("Brevo API error {StatusCode}: {Body}", (int)response.StatusCode, body);
+            throw new InvalidOperationException($"Email delivery failed ({(int)response.StatusCode}): {body}");
         }
     }
 

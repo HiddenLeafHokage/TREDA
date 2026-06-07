@@ -138,6 +138,9 @@ try
         });
     });
 
+    // ── HTTP client (used by EmailService to call Brevo REST API) ────────────
+    builder.Services.AddHttpClient();
+
     // ── Application services ─────────────────────────────────────────────────
     builder.Services.AddScoped<ITokenService, TokenService>();
     builder.Services.AddScoped<IAuthService, AuthService>();
