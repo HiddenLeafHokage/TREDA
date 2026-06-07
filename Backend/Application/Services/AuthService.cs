@@ -709,6 +709,9 @@ public class AuthService : IAuthService
         return ApiResponse<bool>.SuccessResult(true, "Profile updated successfully.");
     }
 
+    public async Task<bool> EmailExistsAsync(string email)
+        => await _context.Users.AnyAsync(u => u.Email == email);
+
     /// <summary>Normalize for uniqueness: digits only; leading 0 treated as Nigerian (+234).</summary>
     private static string? NormalizePhone(string? phone)
     {

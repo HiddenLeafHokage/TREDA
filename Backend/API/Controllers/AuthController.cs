@@ -37,6 +37,21 @@ public class AuthController : ControllerBase
         return Ok(response);
     }
     
+    [HttpGet("check-email")]
+    public async Task<ActionResult<ApiResponse<object>>> CheckEmail([FromQuery] string email)
+    {
+        if (string.IsNullOrWhiteSpace(email) || !email.Contains('@'))
+            return BadRequest(ApiResponse<object>.ErrorResult("Provide a valid email address.", ResponseCodes.VALIDATION_ERROR));
+
+        var exists = await _authService.EmailExistsAsync(email.Trim().ToLower());
+        var data = (object)new { available = !exists };
+
+        if (exists)
+            return Conflict(ApiResponse<object>.ErrorResult("This email is already registered.", ResponseCodes.CONFLICT));
+
+        return Ok(ApiResponse<object>.SuccessResult(data, "Email is available."));
+    }
+
     [HttpPost("register-vendor")]
     public async Task<ActionResult<ApiResponse<AuthResponseDto>>> RegisterVendor(VendorRegistrationDto vendorDto)
     {

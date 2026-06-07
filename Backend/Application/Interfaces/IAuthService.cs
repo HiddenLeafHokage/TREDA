@@ -23,4 +23,5 @@ public interface IAuthService
 
     Task<ApiResponse<Application.DTOs.Vendor.VendorProfileDto>> GetVendorProfileAsync(string userId);
     Task<ApiResponse<bool>> UpdateVendorProfileAsync(string userId, Application.DTOs.Vendor.UpdateVendorProfileDto dto);
+    Task<bool> EmailExistsAsync(string email);
 }
