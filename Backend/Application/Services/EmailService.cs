@@ -1,6 +1,5 @@
-using System.Net.Http.Headers;
-using System.Text;
-using System.Text.Json;
+using System.Net;
+using System.Net.Mail;
 using Application.Interfaces;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -9,23 +8,25 @@ namespace Application.Services;
 
 public class EmailService : IEmailService
 {
-    private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<EmailService> _logger;
-    private readonly string _apiKey;
+    private readonly string _smtpUser;
+    private readonly string _smtpPassword;
     private readonly string _fromAddress;
+    private readonly string _fromName;
     private readonly bool _isConfigured;
 
-    public EmailService(IHttpClientFactory httpClientFactory, IConfiguration configuration, ILogger<EmailService> logger)
+    public EmailService(IConfiguration configuration, ILogger<EmailService> logger)
     {
-        _httpClientFactory = httpClientFactory;
         _logger = logger;
 
-        _apiKey = configuration["Resend:ApiKey"] ?? string.Empty;
-        _fromAddress = configuration["Resend:FromAddress"] ?? "Treda <onboarding@resend.dev>";
-        _isConfigured = !string.IsNullOrWhiteSpace(_apiKey);
+        _smtpUser     = configuration["Email:SmtpUser"]     ?? string.Empty;
+        _smtpPassword = configuration["Email:SmtpPassword"] ?? string.Empty;
+        _fromAddress  = configuration["Email:FromAddress"]  ?? _smtpUser;
+        _fromName     = configuration["Email:FromName"]     ?? "Treda";
+        _isConfigured = !string.IsNullOrWhiteSpace(_smtpUser) && !string.IsNullOrWhiteSpace(_smtpPassword);
 
         if (!_isConfigured)
-            _logger.LogWarning("Resend:ApiKey not configured — emails will only be logged. Add Resend__ApiKey env var to enable real sending.");
+            _logger.LogWarning("Gmail SMTP not configured — emails will only be logged. Set Email__SmtpUser and Email__SmtpPassword env vars.");
     }
 
     public async Task SendEmailVerificationCodeAsync(string email, string verificationCode)
@@ -53,31 +54,36 @@ public class EmailService : IEmailService
         if (!_isConfigured)
         {
             _logger.LogInformation(
-                "[EMAIL NOT SENT — no API key] To={Email} Subject={Subject}",
+                "[EMAIL NOT SENT — SMTP not configured] To={Email} Subject={Subject}",
                 toEmail, subject);
             return;
         }
 
-        var payload = JsonSerializer.Serialize(new
+        using var client = new SmtpClient("smtp.gmail.com", 587)
         {
-            from    = _fromAddress,
-            to      = new[] { toEmail },
-            subject = subject,
-            html    = htmlBody
-        });
+            EnableSsl            = true,
+            Credentials          = new NetworkCredential(_smtpUser, _smtpPassword),
+            DeliveryMethod       = SmtpDeliveryMethod.Network,
+            Timeout              = 15_000
+        };
 
-        using var client  = _httpClientFactory.CreateClient("Resend");
-        using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.resend.com/emails");
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
-        request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
-
-        var response = await client.SendAsync(request);
-
-        if (!response.IsSuccessStatusCode)
+        using var message = new MailMessage
         {
-            var body = await response.Content.ReadAsStringAsync();
-            _logger.LogError("Resend API error {StatusCode}: {Body}", (int)response.StatusCode, body);
-            throw new InvalidOperationException($"Email delivery failed ({(int)response.StatusCode}): {body}");
+            From       = new MailAddress(_fromAddress, _fromName),
+            Subject    = subject,
+            Body       = htmlBody,
+            IsBodyHtml = true
+        };
+        message.To.Add(toEmail);
+
+        try
+        {
+            await client.SendMailAsync(message);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Gmail SMTP failed sending to {Email}", toEmail);
+            throw new InvalidOperationException($"Email delivery failed: {ex.Message}", ex);
         }
     }
 

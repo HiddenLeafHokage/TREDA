@@ -138,9 +138,6 @@ try
         });
     });
 
-    // ── HTTP client (used by EmailService to call Resend REST API) ───────────
-    builder.Services.AddHttpClient();
-
     // ── Application services ─────────────────────────────────────────────────
     builder.Services.AddScoped<ITokenService, TokenService>();
     builder.Services.AddScoped<IAuthService, AuthService>();
