@@ -66,7 +66,7 @@ public class AuthService : IAuthService
                 BusinessCategory = registerDto.BusinessCategory,
                 BusinessLogoUrl = registerDto.BusinessLogoUrl,
                 UserType = registerDto.UserType,
-                PasswordHash = BCrypt.Net.BCrypt.HashPassword(registerDto.Password),
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(registerDto.Password, workFactor: 10),
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,
                 IsActive = true,
@@ -317,7 +317,7 @@ public class AuthService : IAuthService
                 CAC_RC_Number = vendorDto.CAC_RC_Number,
                 DeliveryMethod = vendorDto.DeliveryMethod,
                 UserType = UserType.Vendor,
-                PasswordHash = BCrypt.Net.BCrypt.HashPassword(vendorDto.Password),
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(vendorDto.Password, workFactor: 10),
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow,
                 IsActive = true,
@@ -588,7 +588,7 @@ public class AuthService : IAuthService
             }
             
             // Update password
-            user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(resetPasswordDto.NewPassword);
+            user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(resetPasswordDto.NewPassword, workFactor: 10);
             user.UpdatedAt = DateTime.UtcNow;
             
             // Mark token as used
