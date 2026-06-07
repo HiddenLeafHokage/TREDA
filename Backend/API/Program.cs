@@ -225,11 +225,13 @@ try
     }
 
     // ── HTTP pipeline ─────────────────────────────────────────────────────────
-    if (app.Environment.IsDevelopment())
+    // Swagger enabled in all environments so frontend/QA can explore the API
+    app.UseSwagger();
+    app.UseSwaggerUI(c =>
     {
-        app.UseSwagger();
-        app.UseSwaggerUI();
-    }
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "Treda API v1");
+        c.RoutePrefix = "swagger";
+    });
 
     app.UseSerilogRequestLogging();
     app.UseCors("CorsPolicy");
