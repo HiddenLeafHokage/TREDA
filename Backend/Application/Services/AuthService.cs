@@ -327,11 +327,13 @@ public class AuthService : IAuthService
             _context.Users.Add(user);
             await _context.SaveChangesAsync();
             
-            // Generate email verification code
-            await GenerateAndSendEmailVerificationCode(user.Id);
-            
-            // Send welcome email
-            await _emailService.SendWelcomeEmailAsync(user.Email, user.BusinessName);
+            // Generate email verification code — non-fatal: user can resend if this fails
+            try { await GenerateAndSendEmailVerificationCode(user.Id); }
+            catch (Exception ex) { _logger.LogError(ex, "Failed to send verification email to {Email} — user can use resend-verification-email", user.Email); }
+
+            // Send welcome email — non-fatal
+            try { await _emailService.SendWelcomeEmailAsync(user.Email, user.BusinessName); }
+            catch (Exception ex) { _logger.LogError(ex, "Failed to send welcome email to {Email}", user.Email); }
             
             // Generate tokens
             var token = _tokenService.GenerateToken(user);
