@@ -2,6 +2,7 @@ using Application.Constants;
 using Application.DTOs.Common;
 using Application.DTOs.Product;
 using Application.DTOs.Vendor;
+using Application.Helpers;
 using Application.Interfaces;
 using Domain.Entities;
 using Domain.Enums;
@@ -26,9 +27,10 @@ public class ProductService : IProductService
 
     public async Task<ApiResponse<ProductResponseDto>> CreateAsync(string vendorId, CreateProductDto dto)
     {
-        var categoryExists = await _context.ProductCategories.AnyAsync(c => c.Id == dto.CategoryId && c.IsActive);
-        if (!categoryExists)
-            return ApiResponse<ProductResponseDto>.ErrorResult("Invalid or inactive category. Use GET /api/categories for valid category IDs.", ResponseCodes.VALIDATION_ERROR);
+        var categoryId = NormalizeCategoryId(dto.CategoryId);
+        var categoryError = await ValidateVendorCategoryAsync(vendorId, categoryId);
+        if (categoryError != null)
+            return ApiResponse<ProductResponseDto>.ErrorResult(categoryError, ResponseCodes.VALIDATION_ERROR);
 
         var imageValidationError = ValidateImageUrls(dto.ImageUrls);
         if (imageValidationError != null)
@@ -42,9 +44,8 @@ public class ProductService : IProductService
                 Name = dto.Name,
                 Description = dto.Description ?? string.Empty,
                 Price = dto.Price,
-                CategoryId = dto.CategoryId,
+                CategoryId = categoryId,
                 Condition = dto.Condition,
-                Location = dto.Location,
                 ImageUrls = NormalizeImageUrls(dto.ImageUrls),
                 StockQuantity = dto.StockQuantity,
                 IsActive = dto.IsActive,
@@ -139,16 +140,16 @@ public class ProductService : IProductService
 
         if (dto.CategoryId != null)
         {
-            var categoryExists = await _context.ProductCategories.AnyAsync(c => c.Id == dto.CategoryId && c.IsActive);
-            if (!categoryExists)
-                return ApiResponse<ProductResponseDto>.ErrorResult("Invalid or inactive category.", ResponseCodes.VALIDATION_ERROR);
-            product.CategoryId = dto.CategoryId;
+            var categoryId = NormalizeCategoryId(dto.CategoryId);
+            var categoryError = await ValidateVendorCategoryAsync(vendorId, categoryId);
+            if (categoryError != null)
+                return ApiResponse<ProductResponseDto>.ErrorResult(categoryError, ResponseCodes.VALIDATION_ERROR);
+            product.CategoryId = categoryId;
         }
         if (dto.Name != null) product.Name = dto.Name;
         if (dto.Description != null) product.Description = dto.Description;
         if (dto.Price.HasValue) product.Price = dto.Price.Value;
         if (dto.Condition.HasValue) product.Condition = dto.Condition.Value;
-        if (dto.Location != null) product.Location = dto.Location;
         if (dto.ImageUrls != null)
         {
             var imageValidationError = ValidateImageUrls(dto.ImageUrls);
@@ -282,10 +283,63 @@ public class ProductService : IProductService
             VendorEmail = product.Vendor?.Email,
             VendorPhone = product.Vendor?.PhoneNumber,
             BusinessName = product.Vendor?.BusinessName,
-            BusinessLocation = product.Vendor?.BusinessLocation
+            BusinessLocation = product.Vendor?.BusinessLocation,
+            BusinessLogoUrl = product.Vendor?.BusinessLogoUrl,
+            BusinessCoverPhotoUrl = product.Vendor?.BusinessCoverPhotoUrl,
+            DisplayInitial = product.Vendor != null ? VendorBrandingHelper.GetDisplayInitial(product.Vendor) : "V"
         };
         await _traffic.RecordProductViewAsync(product.VendorId, product.Id);
         return ApiResponse<ProductWithVendorDto>.SuccessResult(dto);
+    }
+
+    public async Task<ApiResponse<VendorPublicProfileDto>> GetPublicVendorProfileAsync(string vendorId, string? categoryId, int page, int pageSize)
+    {
+        var vendor = await _context.Users.AsNoTracking()
+            .FirstOrDefaultAsync(u => u.Id == vendorId && u.UserType == UserType.Vendor && u.IsActive);
+
+        if (vendor == null)
+            return ApiResponse<VendorPublicProfileDto>.ErrorResult("Vendor not found.", ResponseCodes.NOT_FOUND);
+
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 100);
+
+        var query = _context.Products
+            .Include(p => p.Category)
+            .Where(p => p.VendorId == vendorId && p.IsActive);
+
+        if (!string.IsNullOrWhiteSpace(categoryId))
+            query = query.Where(p => p.CategoryId == categoryId);
+
+        var total = await query.CountAsync();
+        var list = await query
+            .OrderByDescending(p => p.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        var profile = new VendorPublicProfileDto
+        {
+            Id = vendor.Id,
+            BusinessName = vendor.BusinessName ?? vendor.FullName,
+            BusinessCategory = vendor.BusinessCategory,
+            BusinessCategoryIds = vendor.BusinessCategoryIds,
+            BusinessLocation = vendor.BusinessLocation,
+            ShopDescription = vendor.ShopDescription,
+            BusinessLogoUrl = vendor.BusinessLogoUrl,
+            BusinessCoverPhotoUrl = vendor.BusinessCoverPhotoUrl,
+            DisplayInitial = VendorBrandingHelper.GetDisplayInitial(vendor),
+            Products = new PagedListDto<ProductResponseDto>
+            {
+                Items = list.Select(MapToDto).ToList(),
+                Page = page,
+                PageSize = pageSize,
+                TotalCount = total,
+                EmptyStateMessage = total == 0 ? AppConstants.EmptyStateMessages.PublicProductsNone : null
+            }
+        };
+
+        var msg = total == 0 ? AppConstants.EmptyStateMessages.PublicProductsNone : "Vendor storefront loaded.";
+        return ApiResponse<VendorPublicProfileDto>.SuccessResult(profile, msg);
     }
 
     public async Task<ApiResponse<bool>> RecordPublicProductEngagementAsync(string productId, VendorTrafficEventType eventType)
@@ -323,6 +377,33 @@ public class ProductService : IProductService
         };
     }
 
+    private async Task<string?> ValidateVendorCategoryAsync(string vendorId, string categoryId)
+    {
+        var categoryExists = await _context.ProductCategories
+            .AnyAsync(c => c.Id == categoryId && c.IsActive);
+        if (!categoryExists)
+            return "Invalid or inactive category. Use GET /api/categories for valid category IDs.";
+
+        var selectedCategoryIds = await _context.Users
+            .Where(u => u.Id == vendorId)
+            .Select(u => u.BusinessCategoryIds)
+            .FirstOrDefaultAsync();
+
+        if (selectedCategoryIds == null || selectedCategoryIds.Count == 0)
+            return null;
+
+        if (!selectedCategoryIds.Contains(categoryId, StringComparer.OrdinalIgnoreCase))
+            return "You can only add products under the categories selected in your vendor profile.";
+
+        return null;
+    }
+
+    private static string NormalizeCategoryId(string categoryId)
+    {
+        var trimmed = categoryId.Trim();
+        return ProductCategorySeed.LegacyIdMap.TryGetValue(trimmed, out var mapped) ? mapped : trimmed;
+    }
+
     private static List<string> NormalizeImageUrls(List<string>? imageUrls)
     {
         return imageUrls?
@@ -338,12 +419,14 @@ public class ProductService : IProductService
         if (imageUrls == null || imageUrls.Count == 0)
             return null;
 
-        foreach (var rawUrl in imageUrls)
+        var normalized = NormalizeImageUrls(imageUrls);
+        if (normalized.Count > AppConstants.MaxProductImagesPerProduct)
         {
-            var url = rawUrl?.Trim();
-            if (string.IsNullOrWhiteSpace(url))
-                continue;
+            return $"A product can have at most {AppConstants.MaxProductImagesPerProduct} images. Upload with POST /api/upload or POST /api/upload/batch, then send all URLs in imageUrls.";
+        }
 
+        foreach (var url in normalized)
+        {
             if (url.StartsWith("blob:", StringComparison.OrdinalIgnoreCase))
                 return "Product image URLs cannot be browser blob URLs. Upload the image with POST /api/upload first, then save the returned data.url in imageUrls.";
 

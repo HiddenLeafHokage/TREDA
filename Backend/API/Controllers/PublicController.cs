@@ -3,6 +3,7 @@ using Application.DTOs.Common;
 using Application.DTOs.Message;
 using Application.DTOs.Order;
 using Application.DTOs.Product;
+using Application.DTOs.Vendor;
 using Application.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 
@@ -34,6 +35,19 @@ public class PublicController : ControllerBase
         [FromQuery] int pageSize = 20)
     {
         var result = await _productService.ListPublicAsync(search, categoryId, page, pageSize);
+        return Ok(result);
+    }
+
+    /// <summary>Public vendor storefront: shop banner, logo, info, and paginated active products.</summary>
+    [HttpGet("vendors/{vendorId}")]
+    public async Task<ActionResult<ApiResponse<VendorPublicProfileDto>>> GetVendorStorefront(
+        string vendorId,
+        [FromQuery] string? categoryId,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20)
+    {
+        var result = await _productService.GetPublicVendorProfileAsync(vendorId, categoryId, page, pageSize);
+        if (result.Code == ResponseCodes.NOT_FOUND) return NotFound(result);
         return Ok(result);
     }
 

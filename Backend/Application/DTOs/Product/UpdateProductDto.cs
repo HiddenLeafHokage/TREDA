@@ -18,9 +18,6 @@ public class UpdateProductDto
 
     public ProductCondition? Condition { get; set; }
 
-    [MaxLength(200)]
-    public string? Location { get; set; }
-
     public List<string>? ImageUrls { get; set; }
 
     [Range(0, int.MaxValue)]

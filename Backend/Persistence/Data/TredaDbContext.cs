@@ -15,6 +15,10 @@ public class TredaDbContext : DbContext
         v => ListStringJson.Serialize(v),
         v => ListStringJson.Deserialize(v));
 
+    private static readonly ValueConverter<List<string>, string> CategoryIdsConverter = new(
+        v => ListStringJson.Serialize(v),
+        v => ListStringJson.Deserialize(v));
+
     /// <summary>Reads "Seller" or "Vendor" from DB as Vendor; always writes "Vendor".</summary>
     private static readonly ValueConverter<UserType, string> UserTypeConverter = new(
         v => v.ToString(),
@@ -49,6 +53,12 @@ public class TredaDbContext : DbContext
             entity.HasIndex(u => u.PhoneNumber).IsUnique().HasFilter("\"PhoneNumber\" IS NOT NULL");
             entity.Property(u => u.UserType).HasConversion(UserTypeConverter);
             entity.Property(u => u.DeliveryMethod).HasConversion<string>();
+            entity.Property(u => u.BusinessCategoryIds)
+                .HasConversion(CategoryIdsConverter)
+                .Metadata.SetValueComparer(new ValueComparer<List<string>>(
+                    (c1, c2) => (c1 == null && c2 == null) || (c1 != null && c2 != null && c1.SequenceEqual(c2)),
+                    c => c == null ? 0 : c.Aggregate(0, (a, v) => HashCode.Combine(a, v == null ? 0 : v.GetHashCode())),
+                    c => c == null ? new List<string>() : c.ToList()));
 
             entity.HasMany(u => u.PasswordResetTokens)
                   .WithOne(prt => prt.User)
@@ -67,17 +77,7 @@ public class TredaDbContext : DbContext
             entity.ToTable("ProductCategories");
             entity.HasKey(c => c.Id);
             entity.HasIndex(c => c.Slug).IsUnique();
-            entity.HasData(
-                new ProductCategory { Id = "cat-phones", Name = "Phones & Tablets", Slug = "phones-tablets", Description = "Mobile phones and tablets", DisplayOrder = 1, CreatedAt = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
-                new ProductCategory { Id = "cat-electronics", Name = "Electronics", Slug = "electronics", Description = "Electronics and gadgets", DisplayOrder = 2, CreatedAt = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
-                new ProductCategory { Id = "cat-fashion", Name = "Fashion", Slug = "fashion", Description = "Clothing and accessories", DisplayOrder = 3, CreatedAt = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
-                new ProductCategory { Id = "cat-food", Name = "Food & Beverage", Slug = "food-beverage", Description = "Food items and drinks", DisplayOrder = 4, CreatedAt = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
-                new ProductCategory { Id = "cat-accessories", Name = "Accessories", Slug = "accessories", Description = "Accessories and more", DisplayOrder = 5, CreatedAt = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
-                new ProductCategory { Id = "cat-home", Name = "Home & Garden", Slug = "home-garden", Description = "Home and garden items", DisplayOrder = 6, CreatedAt = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
-                new ProductCategory { Id = "cat-vehicles", Name = "Vehicles", Slug = "vehicles", Description = "Cars, bikes and parts", DisplayOrder = 7, CreatedAt = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
-                new ProductCategory { Id = "cat-health", Name = "Health & Beauty", Slug = "health-beauty", Description = "Health and beauty products", DisplayOrder = 8, CreatedAt = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
-                new ProductCategory { Id = "cat-other", Name = "Other", Slug = "other", Description = "Other items", DisplayOrder = 99, CreatedAt = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc) }
-            );
+            entity.HasData(ProductCategorySeed.ToHasDataEntities());
         });
 
         // Product configuration

@@ -7,7 +7,7 @@ using Domain.Enums;
 
 namespace Application.DTOs.Auth
 {
-    public class VendorRegistrationDto
+    public class VendorRegistrationDto : IValidatableObject
     {
         // Basic Information
     [Required(ErrorMessage = "Full name is required")]
@@ -37,8 +37,10 @@ namespace Application.DTOs.Auth
     public string ConfirmPassword { get; set; } = string.Empty;
     
     // Business Details
-    [Required(ErrorMessage = "Business category is required")]
     public string BusinessCategory { get; set; } = string.Empty;
+
+    [MinLength(1, ErrorMessage = "Select at least one business category")]
+    public List<string> BusinessCategoryIds { get; set; } = new();
     
     [Required(ErrorMessage = "Business location is required")]
     public string BusinessLocation { get; set; } = string.Empty;
@@ -48,6 +50,9 @@ namespace Application.DTOs.Auth
     public string ShopDescription { get; set; } = string.Empty;
     
     public string? BusinessLogoUrl { get; set; }
+
+    /// <summary>Optional shop cover/banner. Can be set on registration; changes limited after first upload.</summary>
+    public string? BusinessCoverPhotoUrl { get; set; }
     
     [Required(ErrorMessage = "Delivery method is required")]
     public DeliveryMethod DeliveryMethod { get; set; }
@@ -55,5 +60,15 @@ namespace Application.DTOs.Auth
     [Required(ErrorMessage = "CAC/RC Number is required")]
     [RegularExpression(@"^[A-Z]{2}-\d{6}$", ErrorMessage = "CAC/RC Number must be in format: RC-123456")]
     public string CAC_RC_Number { get; set; } = string.Empty;
+
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        if (BusinessCategoryIds == null || BusinessCategoryIds.All(string.IsNullOrWhiteSpace))
+        {
+            yield return new ValidationResult(
+                "Select at least one business category",
+                new[] { nameof(BusinessCategoryIds) });
+        }
+    }
     }
 }

@@ -3,10 +3,12 @@ using Domain.Enums;
 
 namespace Application.DTOs.Vendor;
 
-public class UpdateVendorProfileDto
+public class UpdateVendorProfileDto : IValidatableObject
 {
-    [Required(ErrorMessage = "Business category is required")]
     public string BusinessCategory { get; set; } = string.Empty;
+
+    [MinLength(1, ErrorMessage = "Select at least one business category")]
+    public List<string> BusinessCategoryIds { get; set; } = new();
 
     [Required(ErrorMessage = "Business location is required")]
     public string BusinessLocation { get; set; } = string.Empty;
@@ -17,6 +19,9 @@ public class UpdateVendorProfileDto
 
     public string? BusinessLogoUrl { get; set; }
 
+    /// <summary>Shop cover/banner image URL (optional). Subject to 6-month change cooldown after first set.</summary>
+    public string? BusinessCoverPhotoUrl { get; set; }
+
     [RegularExpression(@"^\+?[\d\s\-]{10,20}$", ErrorMessage = "Use a valid format e.g. +2348012345678 or 09012345678")]
     public string? PhoneNumber { get; set; }
 
@@ -26,4 +31,14 @@ public class UpdateVendorProfileDto
     [Required(ErrorMessage = "CAC/RC Number is required")]
     [RegularExpression(@"^[A-Z]{2}-\d{6}$", ErrorMessage = "CAC/RC Number must be in format: RC-123456")]
     public string CAC_RC_Number { get; set; } = string.Empty;
+
+    public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
+    {
+        if (BusinessCategoryIds == null || BusinessCategoryIds.All(string.IsNullOrWhiteSpace))
+        {
+            yield return new ValidationResult(
+                "Select at least one business category",
+                new[] { nameof(BusinessCategoryIds) });
+        }
+    }
 }

@@ -20,9 +20,13 @@ public class User
     // Business/Seller specific fields
     public string? BusinessName { get; set; }
     public string? BusinessCategory { get; set; }
+    public List<string> BusinessCategoryIds { get; set; } = new();
     public string? BusinessLocation { get; set; } // City/State
     public string? ShopDescription { get; set; }
     public string? BusinessLogoUrl { get; set; }
+    public string? BusinessCoverPhotoUrl { get; set; }
+    public DateTime? BusinessLogoUpdatedAt { get; set; }
+    public DateTime? BusinessCoverPhotoUpdatedAt { get; set; }
     public string? CAC_RC_Number { get; set; }
     public DeliveryMethod? DeliveryMethod { get; set; }
     [Required]

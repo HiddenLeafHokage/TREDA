@@ -8,4 +8,7 @@ public class ProductWithVendorDto : ProductResponseDto
     public string? VendorPhone { get; set; }
     public string? BusinessName { get; set; }
     public string? BusinessLocation { get; set; }
+    public string? BusinessLogoUrl { get; set; }
+    public string? BusinessCoverPhotoUrl { get; set; }
+    public string DisplayInitial { get; set; } = "V";
 }

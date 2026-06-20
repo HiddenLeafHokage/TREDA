@@ -3,6 +3,8 @@ using System.Security.Claims;
 using Application.Constants;
 using Application.DTOs.Auth;
 using Application.DTOs.Common;
+using Application.DTOs.Vendor;
+using Application.Helpers;
 using Application.Interfaces;
 using Domain.Entities;
 using Domain.Enums;
@@ -302,6 +304,16 @@ public class AuthService : IAuthService
                 }
             }
             
+            var selectedCategoryIds = await ValidateAndNormalizeCategoryIdsAsync(vendorDto.BusinessCategoryIds);
+            if (selectedCategoryIds.Count == 0)
+            {
+                return ApiResponse<AuthResponseDto>.ErrorResult(
+                    "Select at least one valid business category.",
+                    ResponseCodes.VALIDATION_ERROR);
+            }
+
+            var businessCategory = await BuildBusinessCategoryDisplayAsync(selectedCategoryIds);
+
             // Create new seller user with complete profile
             var user = new User
             {
@@ -310,10 +322,14 @@ public class AuthService : IAuthService
                 Email = vendorDto.Email,
                 PhoneNumber = vendorDto.PhoneNumber,
                 BusinessName = vendorDto.BusinessName,
-                BusinessCategory = vendorDto.BusinessCategory,
+                BusinessCategory = businessCategory,
+                BusinessCategoryIds = selectedCategoryIds,
                 BusinessLocation = vendorDto.BusinessLocation,
                 ShopDescription = vendorDto.ShopDescription,
-                BusinessLogoUrl = vendorDto.BusinessLogoUrl,
+                BusinessLogoUrl = string.IsNullOrWhiteSpace(vendorDto.BusinessLogoUrl) ? null : vendorDto.BusinessLogoUrl.Trim(),
+                BusinessCoverPhotoUrl = string.IsNullOrWhiteSpace(vendorDto.BusinessCoverPhotoUrl) ? null : vendorDto.BusinessCoverPhotoUrl.Trim(),
+                BusinessLogoUpdatedAt = string.IsNullOrWhiteSpace(vendorDto.BusinessLogoUrl) ? null : DateTime.UtcNow,
+                BusinessCoverPhotoUpdatedAt = string.IsNullOrWhiteSpace(vendorDto.BusinessCoverPhotoUrl) ? null : DateTime.UtcNow,
                 CAC_RC_Number = vendorDto.CAC_RC_Number,
                 DeliveryMethod = vendorDto.DeliveryMethod,
                 UserType = UserType.Vendor,
@@ -638,7 +654,7 @@ public class AuthService : IAuthService
     {
         if (user.UserType != UserType.Vendor) return true;
         
-        return !string.IsNullOrEmpty(user.BusinessCategory) &&
+        return user.BusinessCategoryIds.Count > 0 &&
                !string.IsNullOrEmpty(user.BusinessLocation) &&
                !string.IsNullOrEmpty(user.ShopDescription) &&
                !string.IsNullOrEmpty(user.CAC_RC_Number) &&
@@ -652,9 +668,10 @@ public class AuthService : IAuthService
             .FirstOrDefaultAsync(u => u.Id == userId && u.UserType == UserType.Vendor);
 
         if (user == null)
-            return ApiResponse<Application.DTOs.Vendor.VendorProfileDto>.ErrorResult("Vendor not found.", ResponseCodes.NOT_FOUND);
+            return ApiResponse<VendorProfileDto>.ErrorResult("Vendor not found.", ResponseCodes.NOT_FOUND);
 
-        var dto = new Application.DTOs.Vendor.VendorProfileDto
+        var branding = VendorBrandingHelper.MapBranding(user);
+        var dto = new VendorProfileDto
         {
             Id = user.Id,
             FullName = user.FullName,
@@ -662,9 +679,12 @@ public class AuthService : IAuthService
             PhoneNumber = user.PhoneNumber,
             BusinessName = user.BusinessName,
             BusinessCategory = user.BusinessCategory,
+            BusinessCategoryIds = user.BusinessCategoryIds,
             BusinessLocation = user.BusinessLocation,
             ShopDescription = user.ShopDescription,
-            BusinessLogoUrl = user.BusinessLogoUrl,
+            BusinessLogoUrl = branding.BusinessLogoUrl,
+            BusinessCoverPhotoUrl = branding.BusinessCoverPhotoUrl,
+            Branding = branding,
             CAC_RC_Number = user.CAC_RC_Number,
             DeliveryMethod = user.DeliveryMethod,
             EmailVerified = user.EmailVerified,
@@ -672,10 +692,10 @@ public class AuthService : IAuthService
             UpdatedAt = user.UpdatedAt
         };
 
-        return ApiResponse<Application.DTOs.Vendor.VendorProfileDto>.SuccessResult(dto, "Profile retrieved successfully.");
+        return ApiResponse<VendorProfileDto>.SuccessResult(dto, "Profile retrieved successfully.");
     }
 
-    public async Task<ApiResponse<bool>> UpdateVendorProfileAsync(string userId, Application.DTOs.Vendor.UpdateVendorProfileDto dto)
+    public async Task<ApiResponse<bool>> UpdateVendorProfileAsync(string userId, UpdateVendorProfileDto dto)
     {
         var user = await _context.Users
             .FirstOrDefaultAsync(u => u.Id == userId && u.UserType == UserType.Vendor);
@@ -683,10 +703,46 @@ public class AuthService : IAuthService
         if (user == null)
             return ApiResponse<bool>.ErrorResult("Vendor not found.", ResponseCodes.NOT_FOUND);
 
-        user.BusinessCategory = dto.BusinessCategory;
+        var logoError = TryUpdateBrandingAsset(
+            user,
+            dto.BusinessLogoUrl,
+            user.BusinessLogoUrl,
+            user.BusinessLogoUpdatedAt,
+            (url, ts) =>
+            {
+                user.BusinessLogoUrl = url;
+                user.BusinessLogoUpdatedAt = ts;
+            },
+            "Shop logo");
+        if (logoError != null)
+            return logoError;
+
+        var coverError = TryUpdateBrandingAsset(
+            user,
+            dto.BusinessCoverPhotoUrl,
+            user.BusinessCoverPhotoUrl,
+            user.BusinessCoverPhotoUpdatedAt,
+            (url, ts) =>
+            {
+                user.BusinessCoverPhotoUrl = url;
+                user.BusinessCoverPhotoUpdatedAt = ts;
+            },
+            "Cover photo");
+        if (coverError != null)
+            return coverError;
+
+        var selectedCategoryIds = await ValidateAndNormalizeCategoryIdsAsync(dto.BusinessCategoryIds);
+        if (selectedCategoryIds.Count == 0)
+        {
+            return ApiResponse<bool>.ErrorResult(
+                "Select at least one valid business category.",
+                ResponseCodes.VALIDATION_ERROR);
+        }
+
+        user.BusinessCategoryIds = selectedCategoryIds;
+        user.BusinessCategory = await BuildBusinessCategoryDisplayAsync(selectedCategoryIds);
         user.BusinessLocation = dto.BusinessLocation;
         user.ShopDescription = dto.ShopDescription;
-        user.BusinessLogoUrl = dto.BusinessLogoUrl;
         user.CAC_RC_Number = dto.CAC_RC_Number;
         user.DeliveryMethod = dto.DeliveryMethod;
         user.UpdatedAt = DateTime.UtcNow;
@@ -723,5 +779,79 @@ public class AuthService : IAuthService
         else if (!digits.StartsWith("234") && digits.Length >= 10)
             digits = "234" + digits;
         return digits;
+    }
+
+    private async Task<List<string>> ValidateAndNormalizeCategoryIdsAsync(IEnumerable<string>? categoryIds)
+    {
+        var normalized = categoryIds?
+            .Select(c => c?.Trim())
+            .Where(c => !string.IsNullOrWhiteSpace(c))
+            .Select(c => ProductCategorySeed.LegacyIdMap.TryGetValue(c!, out var mapped) ? mapped : c!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList() ?? new List<string>();
+
+        if (normalized.Count == 0)
+            return new List<string>();
+
+        var activeIds = await _context.ProductCategories
+            .Where(c => c.IsActive && normalized.Contains(c.Id))
+            .Select(c => c.Id)
+            .ToListAsync();
+
+        return normalized
+            .Where(id => activeIds.Contains(id, StringComparer.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private async Task<string> BuildBusinessCategoryDisplayAsync(IReadOnlyCollection<string> categoryIds)
+    {
+        var names = await _context.ProductCategories
+            .Where(c => categoryIds.Contains(c.Id))
+            .OrderBy(c => c.DisplayOrder)
+            .Select(c => c.Name)
+            .ToListAsync();
+
+        return string.Join(", ", names);
+    }
+
+    private static ApiResponse<bool>? TryUpdateBrandingAsset(
+        User user,
+        string? newUrl,
+        string? currentUrl,
+        DateTime? lastUpdatedAt,
+        Action<string?, DateTime?> apply,
+        string assetLabel)
+    {
+        var normalizedNew = string.IsNullOrWhiteSpace(newUrl) ? null : newUrl.Trim();
+        var normalizedCurrent = string.IsNullOrWhiteSpace(currentUrl) ? null : currentUrl.Trim();
+
+        if (string.Equals(normalizedNew, normalizedCurrent, StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        if (normalizedNew != null)
+        {
+            var urlError = VendorBrandingHelper.ValidateBrandingImageUrl(normalizedNew, assetLabel);
+            if (urlError != null)
+                return ApiResponse<bool>.ErrorResult(urlError, ResponseCodes.VALIDATION_ERROR);
+        }
+
+        if (normalizedCurrent == null)
+        {
+            apply(normalizedNew, normalizedNew != null ? DateTime.UtcNow : null);
+            return null;
+        }
+
+        var reference = lastUpdatedAt ?? user.CreatedAt;
+        var allowedAfter = reference.AddMonths(AppConstants.VendorBrandingChangeCooldownMonths);
+        if (DateTime.UtcNow < allowedAfter)
+        {
+            return ApiResponse<bool>.ErrorResult(
+                $"{assetLabel} can only be changed every {AppConstants.VendorBrandingChangeCooldownMonths} months. You can change it again after {allowedAfter:yyyy-MM-dd} UTC.",
+                ResponseCodes.VALIDATION_ERROR);
+        }
+
+        apply(normalizedNew, DateTime.UtcNow);
+        return null;
     }
 }

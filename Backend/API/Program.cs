@@ -8,6 +8,7 @@ using Microsoft.OpenApi.Models;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.HttpOverrides;
 using System.Text;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
@@ -104,6 +105,15 @@ try
     // ── Health checks ─────────────────────────────────────────────────────────
     builder.Services.AddHealthChecks()
         .AddDbContextCheck<TredaDbContext>("database");
+
+    builder.Services.Configure<ForwardedHeadersOptions>(options =>
+    {
+        options.ForwardedHeaders = ForwardedHeaders.XForwardedFor |
+                                   ForwardedHeaders.XForwardedProto |
+                                   ForwardedHeaders.XForwardedHost;
+        options.KnownNetworks.Clear();
+        options.KnownProxies.Clear();
+    });
 
     // ── Rate limiting ─────────────────────────────────────────────────────────
     builder.Services.AddRateLimiter(options =>
@@ -233,6 +243,7 @@ try
         c.RoutePrefix = "swagger";
     });
 
+    app.UseForwardedHeaders();
     app.UseSerilogRequestLogging();
     app.UseCors("CorsPolicy");
     app.UseHttpsRedirection();

@@ -19,4 +19,5 @@ public interface IProductService
     Task<ApiResponse<List<ProductResponseDto>>> ListPublicAsync(string? search, string? categoryId, int page = 1, int pageSize = 20);
     Task<ApiResponse<ProductWithVendorDto>> GetPublicByIdAsync(string productId);
     Task<ApiResponse<bool>> RecordPublicProductEngagementAsync(string productId, VendorTrafficEventType eventType);
+    Task<ApiResponse<VendorPublicProfileDto>> GetPublicVendorProfileAsync(string vendorId, string? categoryId, int page, int pageSize);
 }

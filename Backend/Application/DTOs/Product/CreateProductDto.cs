@@ -16,12 +16,9 @@ public class CreateProductDto
     public decimal Price { get; set; }
 
     [Required]
-    public string CategoryId { get; set; } = string.Empty; // From GET /api/categories (e.g. cat-phones, cat-electronics)
+    public string CategoryId { get; set; } = string.Empty; // From GET /api/categories (e.g. cat-fashion, cat-food)
 
     public ProductCondition Condition { get; set; } = ProductCondition.New; // 0=New, 1=Used, 2=Refurbished
-
-    [MaxLength(200)]
-    public string? Location { get; set; } // City/area for pickup (Jiji-style)
 
     public List<string> ImageUrls { get; set; } = new();
 

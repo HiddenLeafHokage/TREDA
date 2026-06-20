@@ -34,6 +34,8 @@ public static class AppConstants
     /// <summary>Allowed file extensions for uploads (images + PDF).</summary>
     public static readonly string[] AllowedUploadExtensions = { ".jpg", ".jpeg", ".png", ".gif", ".webp", ".pdf" };
     public const int MaxUploadSizeBytes = 5 * 1024 * 1024; // 5 MB
+    public const int MaxProductImagesPerProduct = 5;
+    public const int VendorBrandingChangeCooldownMonths = 6;
 
     /// <summary>User-facing copy when lists or charts have no data yet.</summary>
     public static class EmptyStateMessages
