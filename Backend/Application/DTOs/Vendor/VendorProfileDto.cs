@@ -9,6 +9,7 @@ public class VendorProfileDto
     public string Email { get; set; } = string.Empty;
     public string? PhoneNumber { get; set; }
     public string? BusinessName { get; set; }
+    public string? BusinessSlug { get; set; }
     public string? BusinessCategory { get; set; }
     public List<string> BusinessCategoryIds { get; set; } = new();
     public string? BusinessLocation { get; set; }

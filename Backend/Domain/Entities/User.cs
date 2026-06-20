@@ -19,6 +19,7 @@ public class User
     public string? PhoneNumber { get; set; }
     // Business/Seller specific fields
     public string? BusinessName { get; set; }
+    public string? BusinessSlug { get; set; }
     public string? BusinessCategory { get; set; }
     public List<string> BusinessCategoryIds { get; set; } = new();
     public string? BusinessLocation { get; set; } // City/State

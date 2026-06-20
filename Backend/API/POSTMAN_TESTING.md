@@ -42,7 +42,7 @@ Or use the full URL: `https://localhost:5001/api/...`
 3. **Headers:** `Content-Type: application/json`
 4. **Body (raw, JSON):** Use the same shape as in Swagger (fullName, businessName, email, phoneNumber, password, confirmPassword, businessCategory, businessLocation, shopDescription, deliveryMethod, cac_RC_Number; optional businessLogoUrl).  
    **deliveryMethod:** `1` = PickupOnly, `2` = DeliveryOnly, `3` = Both.  
-   **cac_RC_Number:** e.g. `RC-123456`.
+   **cac_RC_Number:** e.g. `RC-1234567`, `BN-4321`, `LLP-1234567`, `LP-12345`, or `IT-123`; 1-7 digits are accepted.
 5. Send the request.
 6. Copy `data.token` from the response.
 

@@ -20,4 +20,7 @@ public interface IProductService
     Task<ApiResponse<ProductWithVendorDto>> GetPublicByIdAsync(string productId);
     Task<ApiResponse<bool>> RecordPublicProductEngagementAsync(string productId, VendorTrafficEventType eventType);
     Task<ApiResponse<VendorPublicProfileDto>> GetPublicVendorProfileAsync(string vendorId, string? categoryId, int page, int pageSize);
+    Task<ApiResponse<PagedListDto<VendorStoreListItemDto>>> ListPublicVendorsAsync(
+        string? search, string? categoryId, string? location, int page, int pageSize);
+    Task<ApiResponse<VendorPublicProfileDto>> GetPublicVendorProfileBySlugAsync(string slug, string? categoryId, int page, int pageSize);
 }

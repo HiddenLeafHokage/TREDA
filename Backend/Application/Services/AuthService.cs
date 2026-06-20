@@ -322,6 +322,7 @@ public class AuthService : IAuthService
                 Email = vendorDto.Email,
                 PhoneNumber = vendorDto.PhoneNumber,
                 BusinessName = vendorDto.BusinessName,
+                BusinessSlug = await GenerateUniqueBusinessSlugAsync(vendorDto.BusinessName),
                 BusinessCategory = businessCategory,
                 BusinessCategoryIds = selectedCategoryIds,
                 BusinessLocation = vendorDto.BusinessLocation,
@@ -678,6 +679,7 @@ public class AuthService : IAuthService
             Email = user.Email,
             PhoneNumber = user.PhoneNumber,
             BusinessName = user.BusinessName,
+            BusinessSlug = user.BusinessSlug,
             BusinessCategory = user.BusinessCategory,
             BusinessCategoryIds = user.BusinessCategoryIds,
             BusinessLocation = user.BusinessLocation,
@@ -765,6 +767,56 @@ public class AuthService : IAuthService
         return ApiResponse<bool>.SuccessResult(true, "Profile updated successfully.");
     }
 
+    public async Task<ApiResponse<VendorBrandingDto>> UpdateVendorBrandingAsync(string userId, UpdateVendorBrandingDto dto)
+    {
+        var user = await _context.Users
+            .FirstOrDefaultAsync(u => u.Id == userId && u.UserType == UserType.Vendor);
+
+        if (user == null)
+            return ApiResponse<VendorBrandingDto>.ErrorResult("Vendor not found.", ResponseCodes.NOT_FOUND);
+
+        if (dto.BusinessLogoUrl != null)
+        {
+            var logoError = TryUpdateBrandingAsset(
+                user,
+                dto.BusinessLogoUrl,
+                user.BusinessLogoUrl,
+                user.BusinessLogoUpdatedAt,
+                (url, ts) =>
+                {
+                    user.BusinessLogoUrl = url;
+                    user.BusinessLogoUpdatedAt = ts;
+                },
+                "Shop logo");
+            if (logoError != null)
+                return ApiResponse<VendorBrandingDto>.ErrorResult(logoError.Message, logoError.Code);
+        }
+
+        if (dto.BusinessCoverPhotoUrl != null)
+        {
+            var coverError = TryUpdateBrandingAsset(
+                user,
+                dto.BusinessCoverPhotoUrl,
+                user.BusinessCoverPhotoUrl,
+                user.BusinessCoverPhotoUpdatedAt,
+                (url, ts) =>
+                {
+                    user.BusinessCoverPhotoUrl = url;
+                    user.BusinessCoverPhotoUpdatedAt = ts;
+                },
+                "Cover photo");
+            if (coverError != null)
+                return ApiResponse<VendorBrandingDto>.ErrorResult(coverError.Message, coverError.Code);
+        }
+
+        user.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+
+        return ApiResponse<VendorBrandingDto>.SuccessResult(
+            VendorBrandingHelper.MapBranding(user),
+            "Branding updated successfully.");
+    }
+
     public async Task<bool> EmailExistsAsync(string email)
         => await _context.Users.AnyAsync(u => u.Email == email);
 
@@ -813,6 +865,21 @@ public class AuthService : IAuthService
             .ToListAsync();
 
         return string.Join(", ", names);
+    }
+
+    private async Task<string> GenerateUniqueBusinessSlugAsync(string businessName)
+    {
+        var baseSlug = VendorSlugHelper.CreateSlug(businessName);
+        var slug = baseSlug;
+        var suffix = 2;
+
+        while (await _context.Users.AnyAsync(u => u.BusinessSlug == slug))
+        {
+            slug = $"{baseSlug}-{suffix}";
+            suffix++;
+        }
+
+        return slug;
     }
 
     private static ApiResponse<bool>? TryUpdateBrandingAsset(

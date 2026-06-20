@@ -212,7 +212,7 @@ Customers can browse, contact seller via chat, and create orders/invoices **with
 - `businessCategory`, `businessLocation`, `shopDescription`, `deliveryMethod`, `cac_RC_Number`
 - `businessLogoUrl` (optional)
 - **deliveryMethod:** `1` = PickupOnly, `2` = DeliveryOnly, `3` = Both  
-- **cac_RC_Number:** format `RC-123456`
+- **cac_RC_Number:** format `RC-1234567`, `CAC-1234567`, `BN-1234567`, `LLP-1234567`, `LP-1234567`, or `IT-1234567`; 1-7 digits are accepted.
 - **phoneNumber:** One phone per account. Accepted formats: `+2348012345678`, `09012345678`, etc. If the number is already used by another account, registration/update returns conflict.
 - **Flow: Register → Verify email → Login.** Login is allowed only after email is verified. Verification code expires in **45 minutes**; use **POST /api/auth/resend-verification-email** with `{ "email": "..." }` to get a new code (only if not yet verified; if already verified, API returns "Email is already verified").
 

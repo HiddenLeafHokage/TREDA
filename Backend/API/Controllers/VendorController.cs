@@ -54,6 +54,20 @@ public class VendorController : ControllerBase
         return Ok(result);
     }
 
+    [HttpPut("branding")]
+    public async Task<ActionResult<ApiResponse<VendorBrandingDto>>> UpdateBranding([FromBody] UpdateVendorBrandingDto dto)
+    {
+        if (string.IsNullOrEmpty(VendorId))
+            return Unauthorized(ApiResponse<VendorBrandingDto>.ErrorResult("Unauthorized", ResponseCodes.UNAUTHORIZED));
+
+        var result = await _authService.UpdateVendorBrandingAsync(VendorId, dto);
+        if (result.Code == ResponseCodes.NOT_FOUND)
+            return NotFound(result);
+        if (result.Code == ResponseCodes.VALIDATION_ERROR)
+            return BadRequest(result);
+        return Ok(result);
+    }
+
     [HttpGet("dashboard/stats")]
     public async Task<ActionResult<ApiResponse<VendorDashboardStatsDto>>> GetDashboardStats()
     {

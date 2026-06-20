@@ -38,6 +38,32 @@ public class PublicController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>List all public vendor shops for buyer storefront browsing. No auth.</summary>
+    [HttpGet("vendors")]
+    public async Task<ActionResult<ApiResponse<PagedListDto<VendorStoreListItemDto>>>> ListVendors(
+        [FromQuery] string? search,
+        [FromQuery] string? categoryId,
+        [FromQuery] string? location,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20)
+    {
+        var result = await _productService.ListPublicVendorsAsync(search, categoryId, location, page, pageSize);
+        return Ok(result);
+    }
+
+    /// <summary>Public vendor storefront by URL slug, e.g. /shop/delizz-supermarket. No auth.</summary>
+    [HttpGet("vendors/by-slug/{slug}")]
+    public async Task<ActionResult<ApiResponse<VendorPublicProfileDto>>> GetVendorStorefrontBySlug(
+        string slug,
+        [FromQuery] string? categoryId,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20)
+    {
+        var result = await _productService.GetPublicVendorProfileBySlugAsync(slug, categoryId, page, pageSize);
+        if (result.Code == ResponseCodes.NOT_FOUND) return NotFound(result);
+        return Ok(result);
+    }
+
     /// <summary>Public vendor storefront: shop banner, logo, info, and paginated active products.</summary>
     [HttpGet("vendors/{vendorId}")]
     public async Task<ActionResult<ApiResponse<VendorPublicProfileDto>>> GetVendorStorefront(

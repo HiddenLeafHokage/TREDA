@@ -1,10 +1,7 @@
-using Application.DTOs.Common;
-using Application.DTOs.Product;
-
 namespace Application.DTOs.Vendor;
 
-/// <summary>Public vendor storefront (buyer-facing shop page).</summary>
-public class VendorPublicProfileDto
+/// <summary>Public shop card for buyer-facing store listing.</summary>
+public class VendorStoreListItemDto
 {
     public string Id { get; set; } = string.Empty;
     public string Slug { get; set; } = string.Empty;
@@ -12,15 +9,10 @@ public class VendorPublicProfileDto
     public string? BusinessCategory { get; set; }
     public List<string> BusinessCategoryIds { get; set; } = new();
     public string? BusinessLocation { get; set; }
-    public string? ShopDescription { get; set; }
-    public string? PhoneNumber { get; set; }
     public string? BusinessLogoUrl { get; set; }
     public string? BusinessCoverPhotoUrl { get; set; }
     public string DisplayInitial { get; set; } = "V";
-    public DateTime CreatedAt { get; set; }
-    public int YearsOnTreda { get; set; }
-    public bool IsVerified { get; set; }
+    public int ProductCount { get; set; }
     public decimal Rating { get; set; }
     public int ReviewCount { get; set; }
-    public PagedListDto<ProductResponseDto> Products { get; set; } = new();
 }

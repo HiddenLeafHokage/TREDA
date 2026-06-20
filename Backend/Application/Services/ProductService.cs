@@ -300,46 +300,96 @@ public class ProductService : IProductService
         if (vendor == null)
             return ApiResponse<VendorPublicProfileDto>.ErrorResult("Vendor not found.", ResponseCodes.NOT_FOUND);
 
+        return await BuildPublicVendorProfileAsync(vendor, categoryId, page, pageSize);
+    }
+
+    public async Task<ApiResponse<PagedListDto<VendorStoreListItemDto>>> ListPublicVendorsAsync(
+        string? search, string? categoryId, string? location, int page, int pageSize)
+    {
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 100);
 
-        var query = _context.Products
-            .Include(p => p.Category)
-            .Where(p => p.VendorId == vendorId && p.IsActive);
+        var normalizedCategoryId = string.IsNullOrWhiteSpace(categoryId) ? null : NormalizeCategoryId(categoryId);
 
-        if (!string.IsNullOrWhiteSpace(categoryId))
-            query = query.Where(p => p.CategoryId == categoryId);
+        var query = _context.Users
+            .AsNoTracking()
+            .Where(u => u.UserType == UserType.Vendor && u.IsActive);
 
-        var total = await query.CountAsync();
-        var list = await query
-            .OrderByDescending(p => p.CreatedAt)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var q = search.Trim();
+            query = query.Where(u =>
+                (u.BusinessName != null && u.BusinessName.Contains(q)) ||
+                u.FullName.Contains(q) ||
+                (u.BusinessCategory != null && u.BusinessCategory.Contains(q)));
+        }
+
+        if (!string.IsNullOrWhiteSpace(location))
+        {
+            var loc = location.Trim();
+            query = query.Where(u => u.BusinessLocation != null && u.BusinessLocation.Contains(loc));
+        }
+
+        var filteredVendors = await query
+            .OrderByDescending(u => u.CreatedAt)
             .ToListAsync();
 
-        var profile = new VendorPublicProfileDto
+        if (!string.IsNullOrWhiteSpace(normalizedCategoryId))
         {
-            Id = vendor.Id,
-            BusinessName = vendor.BusinessName ?? vendor.FullName,
-            BusinessCategory = vendor.BusinessCategory,
-            BusinessCategoryIds = vendor.BusinessCategoryIds,
-            BusinessLocation = vendor.BusinessLocation,
-            ShopDescription = vendor.ShopDescription,
-            BusinessLogoUrl = vendor.BusinessLogoUrl,
-            BusinessCoverPhotoUrl = vendor.BusinessCoverPhotoUrl,
-            DisplayInitial = VendorBrandingHelper.GetDisplayInitial(vendor),
-            Products = new PagedListDto<ProductResponseDto>
-            {
-                Items = list.Select(MapToDto).ToList(),
-                Page = page,
-                PageSize = pageSize,
-                TotalCount = total,
-                EmptyStateMessage = total == 0 ? AppConstants.EmptyStateMessages.PublicProductsNone : null
-            }
+            filteredVendors = filteredVendors
+                .Where(u => u.BusinessCategoryIds.Contains(normalizedCategoryId, StringComparer.OrdinalIgnoreCase))
+                .ToList();
+        }
+
+        var total = filteredVendors.Count;
+        var vendors = filteredVendors
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToList();
+
+        var vendorIds = vendors.Select(v => v.Id).ToList();
+        var productCounts = await _context.Products
+            .AsNoTracking()
+            .Where(p => vendorIds.Contains(p.VendorId) && p.IsActive)
+            .GroupBy(p => p.VendorId)
+            .Select(g => new { VendorId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.VendorId, x => x.Count);
+
+        var items = vendors.Select(v => MapVendorStoreListItem(v, productCounts)).ToList();
+        var pageDto = new PagedListDto<VendorStoreListItemDto>
+        {
+            Items = items,
+            Page = page,
+            PageSize = pageSize,
+            TotalCount = total,
+            EmptyStateMessage = total == 0 ? "No stores match your filters yet." : null
         };
 
-        var msg = total == 0 ? AppConstants.EmptyStateMessages.PublicProductsNone : "Vendor storefront loaded.";
-        return ApiResponse<VendorPublicProfileDto>.SuccessResult(profile, msg);
+        return ApiResponse<PagedListDto<VendorStoreListItemDto>>.SuccessResult(
+            pageDto,
+            total == 0 ? "No stores match your filters yet." : "Stores loaded.");
+    }
+
+    public async Task<ApiResponse<VendorPublicProfileDto>> GetPublicVendorProfileBySlugAsync(string slug, string? categoryId, int page, int pageSize)
+    {
+        var normalizedSlug = VendorSlugHelper.CreateSlug(slug);
+        var vendor = await _context.Users.AsNoTracking()
+            .FirstOrDefaultAsync(u => u.UserType == UserType.Vendor &&
+                                      u.IsActive &&
+                                      (u.BusinessSlug == normalizedSlug || u.BusinessSlug == slug));
+
+        if (vendor == null)
+        {
+            var vendors = await _context.Users.AsNoTracking()
+                .Where(u => u.UserType == UserType.Vendor && u.IsActive)
+                .ToListAsync();
+            vendor = vendors.FirstOrDefault(u => string.Equals(GetVendorSlug(u), normalizedSlug, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (vendor == null)
+            return ApiResponse<VendorPublicProfileDto>.ErrorResult("Vendor not found.", ResponseCodes.NOT_FOUND);
+
+        return await BuildPublicVendorProfileAsync(vendor, categoryId, page, pageSize);
     }
 
     public async Task<ApiResponse<bool>> RecordPublicProductEngagementAsync(string productId, VendorTrafficEventType eventType)
@@ -376,6 +426,92 @@ public class ProductService : IProductService
             UpdatedAt = p.UpdatedAt
         };
     }
+
+    private async Task<ApiResponse<VendorPublicProfileDto>> BuildPublicVendorProfileAsync(User vendor, string? categoryId, int page, int pageSize)
+    {
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 100);
+
+        var normalizedCategoryId = string.IsNullOrWhiteSpace(categoryId) ? null : NormalizeCategoryId(categoryId);
+
+        var query = _context.Products
+            .Include(p => p.Category)
+            .Where(p => p.VendorId == vendor.Id && p.IsActive);
+
+        if (!string.IsNullOrWhiteSpace(normalizedCategoryId))
+            query = query.Where(p => p.CategoryId == normalizedCategoryId);
+
+        var total = await query.CountAsync();
+        var list = await query
+            .OrderByDescending(p => p.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        var profile = MapVendorPublicProfile(vendor, list, page, pageSize, total);
+        var msg = total == 0 ? AppConstants.EmptyStateMessages.PublicProductsNone : "Vendor storefront loaded.";
+        return ApiResponse<VendorPublicProfileDto>.SuccessResult(profile, msg);
+    }
+
+    private static VendorStoreListItemDto MapVendorStoreListItem(User vendor, IReadOnlyDictionary<string, int> productCounts)
+    {
+        return new VendorStoreListItemDto
+        {
+            Id = vendor.Id,
+            Slug = GetVendorSlug(vendor),
+            BusinessName = vendor.BusinessName ?? vendor.FullName,
+            BusinessCategory = vendor.BusinessCategory,
+            BusinessCategoryIds = vendor.BusinessCategoryIds,
+            BusinessLocation = vendor.BusinessLocation,
+            BusinessLogoUrl = vendor.BusinessLogoUrl,
+            BusinessCoverPhotoUrl = vendor.BusinessCoverPhotoUrl,
+            DisplayInitial = VendorBrandingHelper.GetDisplayInitial(vendor),
+            ProductCount = productCounts.TryGetValue(vendor.Id, out var count) ? count : 0,
+            Rating = 0,
+            ReviewCount = 0
+        };
+    }
+
+    private static VendorPublicProfileDto MapVendorPublicProfile(
+        User vendor,
+        IReadOnlyList<Product> products,
+        int page,
+        int pageSize,
+        int total)
+    {
+        return new VendorPublicProfileDto
+        {
+            Id = vendor.Id,
+            Slug = GetVendorSlug(vendor),
+            BusinessName = vendor.BusinessName ?? vendor.FullName,
+            BusinessCategory = vendor.BusinessCategory,
+            BusinessCategoryIds = vendor.BusinessCategoryIds,
+            BusinessLocation = vendor.BusinessLocation,
+            ShopDescription = vendor.ShopDescription,
+            PhoneNumber = vendor.PhoneNumber,
+            BusinessLogoUrl = vendor.BusinessLogoUrl,
+            BusinessCoverPhotoUrl = vendor.BusinessCoverPhotoUrl,
+            DisplayInitial = VendorBrandingHelper.GetDisplayInitial(vendor),
+            CreatedAt = vendor.CreatedAt,
+            YearsOnTreda = Math.Max(0, (int)((DateTime.UtcNow.Date - vendor.CreatedAt.Date).TotalDays / 365.25)),
+            IsVerified = !string.IsNullOrWhiteSpace(vendor.CAC_RC_Number),
+            Rating = 0,
+            ReviewCount = 0,
+            Products = new PagedListDto<ProductResponseDto>
+            {
+                Items = products.Select(MapToDto).ToList(),
+                Page = page,
+                PageSize = pageSize,
+                TotalCount = total,
+                EmptyStateMessage = total == 0 ? AppConstants.EmptyStateMessages.PublicProductsNone : null
+            }
+        };
+    }
+
+    private static string GetVendorSlug(User vendor)
+        => string.IsNullOrWhiteSpace(vendor.BusinessSlug)
+            ? VendorSlugHelper.CreateSlug(vendor.BusinessName ?? vendor.FullName)
+            : vendor.BusinessSlug;
 
     private async Task<string?> ValidateVendorCategoryAsync(string vendorId, string categoryId)
     {

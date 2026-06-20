@@ -29,7 +29,7 @@ public class UpdateVendorProfileDto : IValidatableObject
     public DeliveryMethod DeliveryMethod { get; set; }
 
     [Required(ErrorMessage = "CAC/RC Number is required")]
-    [RegularExpression(@"^[A-Z]{2}-\d{6}$", ErrorMessage = "CAC/RC Number must be in format: RC-123456")]
+    [RegularExpression(@"(?i)^(RC|CAC|BN|LLP|LP|IT)-\d{1,7}$", ErrorMessage = "CAC/RC Number must be in format: RC-1234567, CAC-1234567, BN-1234567, LLP-1234567, LP-1234567, or IT-1234567")]
     public string CAC_RC_Number { get; set; } = string.Empty;
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
