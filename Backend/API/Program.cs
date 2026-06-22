@@ -120,32 +120,41 @@ try
     {
         options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
+        // Partition every policy by client IP so one caller can't exhaust the limit for
+        // everyone. RemoteIpAddress is the real client IP because UseForwardedHeaders runs
+        // earlier in the pipeline (Render terminates TLS at its proxy).
+        static string ClientKey(HttpContext http) =>
+            http.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
         // Auth endpoints: 10 requests per minute per IP (login, register, OTP)
-        options.AddFixedWindowLimiter("auth", o =>
-        {
-            o.Window = TimeSpan.FromMinutes(1);
-            o.PermitLimit = 10;
-            o.QueueLimit = 0;
-            o.AutoReplenishment = true;
-        });
+        options.AddPolicy("auth", http => RateLimitPartition.GetFixedWindowLimiter(
+            ClientKey(http), _ => new FixedWindowRateLimiterOptions
+            {
+                Window = TimeSpan.FromMinutes(1),
+                PermitLimit = 10,
+                QueueLimit = 0,
+                AutoReplenishment = true
+            }));
 
         // Public browsing: 60 requests per minute per IP
-        options.AddSlidingWindowLimiter("public", o =>
-        {
-            o.Window = TimeSpan.FromMinutes(1);
-            o.SegmentsPerWindow = 6;
-            o.PermitLimit = 60;
-            o.QueueLimit = 0;
-        });
+        options.AddPolicy("public", http => RateLimitPartition.GetSlidingWindowLimiter(
+            ClientKey(http), _ => new SlidingWindowRateLimiterOptions
+            {
+                Window = TimeSpan.FromMinutes(1),
+                SegmentsPerWindow = 6,
+                PermitLimit = 60,
+                QueueLimit = 0
+            }));
 
         // Upload: 20 requests per minute per IP
-        options.AddFixedWindowLimiter("uploads", o =>
-        {
-            o.Window = TimeSpan.FromMinutes(1);
-            o.PermitLimit = 20;
-            o.QueueLimit = 0;
-            o.AutoReplenishment = true;
-        });
+        options.AddPolicy("uploads", http => RateLimitPartition.GetFixedWindowLimiter(
+            ClientKey(http), _ => new FixedWindowRateLimiterOptions
+            {
+                Window = TimeSpan.FromMinutes(1),
+                PermitLimit = 20,
+                QueueLimit = 0,
+                AutoReplenishment = true
+            }));
     });
 
     // ── HTTP client (used by EmailService to call Brevo REST API) ────────────
@@ -184,8 +193,10 @@ try
     builder.Services.AddScoped<IVendorSearchService, VendorSearchService>();
 
     // ── JWT Authentication ────────────────────────────────────────────────────
-    var jwtSecret = builder.Configuration["Jwt:Secret"]
-        ?? throw new InvalidOperationException("JWT Secret is not configured");
+    var jwtSecret = builder.Configuration["Jwt:Secret"];
+    if (string.IsNullOrWhiteSpace(jwtSecret))
+        throw new InvalidOperationException(
+            "JWT Secret is not configured. Set the Jwt__Secret environment variable (it is intentionally empty in appsettings.json so secrets never live in source control).");
     var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "treda-api";
     var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "treda-client";
 
@@ -273,7 +284,10 @@ try
     app.UseMetricServer();
     app.UseHttpMetrics();
 
-    app.UseRateLimiter();
+    // Enabled by default; integration tests set RateLimiting:Enabled=false so the shared
+    // test server doesn't exhaust the auth window across many register/login calls.
+    if (app.Configuration.GetValue("RateLimiting:Enabled", true))
+        app.UseRateLimiter();
     app.UseAuthentication();
     app.UseAuthorization();
     app.MapControllers();
@@ -300,7 +314,10 @@ try
 
     app.Run();
 }
-catch (Exception ex) when (ex is not HostAbortedException)
+// Let WebApplicationFactory's host-capture signal (StopTheHostException, thrown during
+// integration tests) and HostAbortedException propagate instead of being swallowed here.
+catch (Exception ex) when (ex is not HostAbortedException &&
+                           ex.GetType().Name is not "StopTheHostException")
 {
     Log.Fatal(ex, "Application terminated unexpectedly.");
 }
@@ -360,3 +377,6 @@ static string ParseDatabaseUrl(string url)
 
     return $"Host={host};Port={port};Database={database};Username={username};Password={password};SSL Mode=Require;Trust Server Certificate=true";
 }
+
+// Exposed so the integration-test project can boot the real app via WebApplicationFactory<Program>.
+public partial class Program { }

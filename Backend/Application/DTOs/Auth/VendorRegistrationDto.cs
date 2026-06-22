@@ -49,9 +49,11 @@ namespace Application.DTOs.Auth
     [MaxLength(1000, ErrorMessage = "Shop description cannot exceed 1000 characters")]
     public string ShopDescription { get; set; } = string.Empty;
 
-    // Logo and cover photo are intentionally NOT set at registration.
-    // New vendors start with a first-letter avatar; they add a logo/cover later
-    // via the storefront-appearance endpoint (subject to the 6-month change limit).
+    /// <summary>
+    /// Optional shop logo URL (from POST /api/upload). If omitted, the storefront shows the
+    /// vendor's first-letter avatar. The cover photo is added later via the store-appearance endpoint.
+    /// </summary>
+    public string? BusinessLogoUrl { get; set; }
 
     [Required(ErrorMessage = "Delivery method is required")]
     public DeliveryMethod DeliveryMethod { get; set; }

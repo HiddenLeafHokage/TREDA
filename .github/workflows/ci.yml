@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: treda_test
+          POSTGRES_USER: treda
+          POSTGRES_PASSWORD: treda_dev_pass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U treda -d treda_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      TEST_DB_CONNECTION: "Host=localhost;Port=5432;Database=treda_test;Username=treda;Password=treda_dev_pass"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore
+        run: dotnet restore Backend/Treda.sln
+
+      - name: Build
+        run: dotnet build Backend/Treda.sln -c Release --no-restore
+
+      - name: Test
+        run: dotnet test Backend/Treda.sln -c Release --no-build --verbosity normal

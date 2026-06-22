@@ -317,6 +317,17 @@ public class AuthService : IAuthService
 
             var businessCategory = await BuildBusinessCategoryDisplayAsync(selectedCategoryIds);
 
+            // Optional logo at registration — validate the URL the same way the store-appearance
+            // endpoint does (rejects blob:/data:/file: and malformed URLs). Null/empty is allowed:
+            // the storefront then falls back to the vendor's first-letter avatar.
+            var logoError = VendorBrandingHelper.ValidateBrandingImageUrl(vendorDto.BusinessLogoUrl, "Shop logo");
+            if (logoError != null)
+                return ApiResponse<AuthResponseDto>.ErrorResult(logoError, ResponseCodes.VALIDATION_ERROR);
+
+            var normalizedLogoUrl = string.IsNullOrWhiteSpace(vendorDto.BusinessLogoUrl)
+                ? null
+                : vendorDto.BusinessLogoUrl.Trim();
+
             // Create new seller user with complete profile
             var user = new User
             {
@@ -330,8 +341,10 @@ public class AuthService : IAuthService
                 BusinessCategoryIds = selectedCategoryIds,
                 BusinessLocation = vendorDto.BusinessLocation,
                 ShopDescription = vendorDto.ShopDescription,
-                // Logo/cover are not set at registration — vendors add them later via the
-                // storefront-appearance endpoint. They start with a first-letter avatar.
+                // Logo is optional at registration (first-letter avatar if omitted). Setting it now
+                // starts the 6-month change window; the cover photo is added via store-appearance.
+                BusinessLogoUrl = normalizedLogoUrl,
+                BusinessLogoUpdatedAt = normalizedLogoUrl != null ? DateTime.UtcNow : null,
                 CAC_RC_Number = vendorDto.CAC_RC_Number,
                 DeliveryMethod = vendorDto.DeliveryMethod,
                 UserType = UserType.Vendor,
