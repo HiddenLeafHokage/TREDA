@@ -17,12 +17,14 @@ public class ProductService : IProductService
     private readonly TredaDbContext _context;
     private readonly ILogger<ProductService> _logger;
     private readonly IVendorTrafficService _traffic;
+    private readonly IFileStorageService _storage;
 
-    public ProductService(TredaDbContext context, ILogger<ProductService> logger, IVendorTrafficService traffic)
+    public ProductService(TredaDbContext context, ILogger<ProductService> logger, IVendorTrafficService traffic, IFileStorageService storage)
     {
         _context = context;
         _logger = logger;
         _traffic = traffic;
+        _storage = storage;
     }
 
     public async Task<ApiResponse<ProductResponseDto>> CreateAsync(string vendorId, CreateProductDto dto)
@@ -150,19 +152,29 @@ public class ProductService : IProductService
         if (dto.Description != null) product.Description = dto.Description;
         if (dto.Price.HasValue) product.Price = dto.Price.Value;
         if (dto.Condition.HasValue) product.Condition = dto.Condition.Value;
+        List<string>? removedImageUrls = null;
         if (dto.ImageUrls != null)
         {
             var imageValidationError = ValidateImageUrls(dto.ImageUrls);
             if (imageValidationError != null)
                 return ApiResponse<ProductResponseDto>.ErrorResult(imageValidationError, ResponseCodes.VALIDATION_ERROR);
 
-            product.ImageUrls = NormalizeImageUrls(dto.ImageUrls);
+            var newImageUrls = NormalizeImageUrls(dto.ImageUrls);
+            // Images present before but absent now are orphans to clean up after save.
+            removedImageUrls = (product.ImageUrls ?? new List<string>())
+                .Except(newImageUrls, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            product.ImageUrls = newImageUrls;
         }
         if (dto.StockQuantity.HasValue) product.StockQuantity = dto.StockQuantity.Value;
         if (dto.IsActive.HasValue) product.IsActive = dto.IsActive.Value;
 
         product.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
+
+        if (removedImageUrls != null)
+            foreach (var url in removedImageUrls)
+                await _storage.DeleteByUrlAsync(url);
 
         return ApiResponse<ProductResponseDto>.SuccessResult(MapToDto(product), "Product updated successfully.");
     }
@@ -175,8 +187,14 @@ public class ProductService : IProductService
         if (product == null)
             return ApiResponse<bool>.ErrorResult("Product not found.", ResponseCodes.NOT_FOUND);
 
+        var imageUrls = product.ImageUrls ?? new List<string>();
+
         _context.Products.Remove(product);
         await _context.SaveChangesAsync();
+
+        foreach (var url in imageUrls)
+            await _storage.DeleteByUrlAsync(url);
+
         return ApiResponse<bool>.SuccessResult(true, "Product deleted successfully.");
     }
 

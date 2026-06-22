@@ -32,12 +32,21 @@ public class EmailService : IEmailService
 
     public async Task SendEmailVerificationCodeAsync(string email, string verificationCode)
     {
+        // Local/dev only: when Brevo isn't configured the email isn't actually sent, so
+        // surface the code in the logs (docker compose logs api) for testing. In production
+        // Brevo IS configured, so this never logs — codes are not written to prod logs.
+        if (!_isConfigured)
+            _logger.LogWarning("[DEV] Email verification code for {Email}: {Code}", email, verificationCode);
+
         await SendAsync(email, "Verify your Treda account", BuildVerificationEmail(verificationCode));
         _logger.LogInformation("Verification email dispatched to {Email}", email);
     }
 
     public async Task SendPasswordResetCodeAsync(string email, string resetCode)
     {
+        if (!_isConfigured)
+            _logger.LogWarning("[DEV] Password reset code for {Email}: {Code}", email, resetCode);
+
         await SendAsync(email, "Reset your Treda password", BuildPasswordResetEmail(resetCode));
         _logger.LogInformation("Password reset email dispatched to {Email}", email);
     }

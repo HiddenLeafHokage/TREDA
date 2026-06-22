@@ -2,6 +2,7 @@ using API.Attributes;
 using Microsoft.AspNetCore.RateLimiting;
 using Application.Constants;
 using Application.DTOs.Common;
+using Application.Interfaces;
 using Microsoft.AspNetCore.Mvc;
 
 namespace API.Controllers;
@@ -10,14 +11,12 @@ namespace API.Controllers;
 [Route("api/[controller]")]
 public class UploadController : ControllerBase
 {
-    private readonly IWebHostEnvironment _env;
-    private readonly IConfiguration _configuration;
+    private readonly IFileStorageService _storage;
     private readonly ILogger<UploadController> _logger;
 
-    public UploadController(IWebHostEnvironment env, IConfiguration configuration, ILogger<UploadController> logger)
+    public UploadController(IFileStorageService storage, ILogger<UploadController> logger)
     {
-        _env = env;
-        _configuration = configuration;
+        _storage = storage;
         _logger = logger;
     }
 
@@ -40,28 +39,18 @@ public class UploadController : ControllerBase
         if (file.Length > AppConstants.MaxUploadSizeBytes)
             return BadRequest(ApiResponse<UploadResultDto>.ErrorResult("File too large. Max 5 MB.", ResponseCodes.VALIDATION_ERROR));
 
-        var uploadsDir = Path.Combine(_env.ContentRootPath, "wwwroot", "uploads");
-        Directory.CreateDirectory(uploadsDir);
-
-        var safeName = $"{Guid.NewGuid():N}{ext}";
-        var filePath = Path.Combine(uploadsDir, safeName);
-
         try
         {
-            await using (var stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true))
-                await file.CopyToAsync(stream, cancellationToken);
+            await using var stream = file.OpenReadStream();
+            var stored = await _storage.UploadAsync(stream, file.FileName, file.ContentType, cancellationToken);
 
-            var relativeUrl = $"/uploads/{safeName}";
-            var absoluteUrl = BuildPublicUrl(relativeUrl);
             return Ok(ApiResponse<UploadResultDto>.SuccessResult(
-                new UploadResultDto { Url = absoluteUrl, RelativeUrl = relativeUrl, FileName = file.FileName },
+                new UploadResultDto { Url = stored.Url, RelativeUrl = stored.PublicId, FileName = file.FileName },
                 "File uploaded successfully."));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Upload failed for {FileName}", file.FileName);
-            if (System.IO.File.Exists(filePath))
-                System.IO.File.Delete(filePath);
             return StatusCode(500, ApiResponse<UploadResultDto>.ErrorResult("Upload failed.", ResponseCodes.SERVER_ERROR));
         }
     }
@@ -85,11 +74,8 @@ public class UploadController : ControllerBase
                 ResponseCodes.VALIDATION_ERROR));
         }
 
-        var uploadsDir = Path.Combine(_env.ContentRootPath, "wwwroot", "uploads");
-        Directory.CreateDirectory(uploadsDir);
-
         var results = new List<UploadResultDto>();
-        var savedPaths = new List<string>();
+        var storedIds = new List<string>();
 
         try
         {
@@ -109,19 +95,14 @@ public class UploadController : ControllerBase
                 if (file.Length > AppConstants.MaxUploadSizeBytes)
                     return BadRequest(ApiResponse<List<UploadResultDto>>.ErrorResult("One or more files exceed 5 MB.", ResponseCodes.VALIDATION_ERROR));
 
-                var safeName = $"{Guid.NewGuid():N}{ext}";
-                var filePath = Path.Combine(uploadsDir, safeName);
+                await using var stream = file.OpenReadStream();
+                var stored = await _storage.UploadAsync(stream, file.FileName, file.ContentType, cancellationToken);
 
-                await using (var stream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, useAsync: true))
-                    await file.CopyToAsync(stream, cancellationToken);
-
-                savedPaths.Add(filePath);
-                var relativeUrl = $"/uploads/{safeName}";
-                var absoluteUrl = BuildPublicUrl(relativeUrl);
+                storedIds.Add(stored.PublicId);
                 results.Add(new UploadResultDto
                 {
-                    Url = absoluteUrl,
-                    RelativeUrl = relativeUrl,
+                    Url = stored.Url,
+                    RelativeUrl = stored.PublicId,
                     FileName = file.FileName
                 });
             }
@@ -131,19 +112,11 @@ public class UploadController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Batch upload failed");
-            foreach (var path in savedPaths.Where(System.IO.File.Exists))
-                System.IO.File.Delete(path);
+            // Roll back any files already stored in this batch so we don't leave orphans.
+            foreach (var id in storedIds)
+                await _storage.DeleteAsync(id, cancellationToken);
             return StatusCode(500, ApiResponse<List<UploadResultDto>>.ErrorResult("Batch upload failed.", ResponseCodes.SERVER_ERROR));
         }
-    }
-
-    private string BuildPublicUrl(string relativeUrl)
-    {
-        var configuredBaseUrl = _configuration["Uploads:PublicBaseUrl"]?.Trim().TrimEnd('/');
-        if (!string.IsNullOrWhiteSpace(configuredBaseUrl))
-            return $"{configuredBaseUrl}{relativeUrl}";
-
-        return $"{Request.Scheme}://{Request.Host}{relativeUrl}";
     }
 }
 

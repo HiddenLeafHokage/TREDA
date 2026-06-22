@@ -48,12 +48,11 @@ namespace Application.DTOs.Auth
     [Required(ErrorMessage = "Shop description is required")]
     [MaxLength(1000, ErrorMessage = "Shop description cannot exceed 1000 characters")]
     public string ShopDescription { get; set; } = string.Empty;
-    
-    public string? BusinessLogoUrl { get; set; }
 
-    /// <summary>Optional shop cover/banner. Can be set on registration; changes limited after first upload.</summary>
-    public string? BusinessCoverPhotoUrl { get; set; }
-    
+    // Logo and cover photo are intentionally NOT set at registration.
+    // New vendors start with a first-letter avatar; they add a logo/cover later
+    // via the storefront-appearance endpoint (subject to the 6-month change limit).
+
     [Required(ErrorMessage = "Delivery method is required")]
     public DeliveryMethod DeliveryMethod { get; set; }
     

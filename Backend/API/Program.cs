@@ -150,6 +150,26 @@ try
 
     // ── HTTP client (used by EmailService to call Brevo REST API) ────────────
     builder.Services.AddHttpClient();
+    builder.Services.AddHttpContextAccessor();
+
+    // ── File storage (logos, covers, product images) ─────────────────────────
+    // Swappable seam: Cloudinary in production (permanent CDN URLs that survive
+    // Render redeploys), local disk only as a dev fallback when Cloudinary keys
+    // are absent. To move to AWS S3 later, add an S3FileStorageService and swap
+    // this single registration — no controller or service changes required.
+    var cloudinaryConfigured = !string.IsNullOrWhiteSpace(builder.Configuration["Cloudinary:CloudName"]) &&
+                               !string.IsNullOrWhiteSpace(builder.Configuration["Cloudinary:ApiKey"]) &&
+                               !string.IsNullOrWhiteSpace(builder.Configuration["Cloudinary:ApiSecret"]);
+    if (cloudinaryConfigured)
+    {
+        builder.Services.AddScoped<IFileStorageService, CloudinaryFileStorageService>();
+    }
+    else
+    {
+        Log.Warning("Cloudinary not configured — uploads use LOCAL DISK and will be lost on redeploy. " +
+                    "Set Cloudinary__CloudName, Cloudinary__ApiKey and Cloudinary__ApiSecret in production.");
+        builder.Services.AddScoped<IFileStorageService, API.Services.LocalDiskFileStorageService>();
+    }
 
     // ── Application services ─────────────────────────────────────────────────
     builder.Services.AddScoped<ITokenService, TokenService>();

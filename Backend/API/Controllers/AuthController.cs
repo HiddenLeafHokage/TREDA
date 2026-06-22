@@ -25,18 +25,6 @@ public class AuthController : ControllerBase
         _logger = logger;
     }
     
-    [HttpGet("test")]
-    public IActionResult Test()
-    {
-        var response = ApiResponse<object>.SuccessResult(new { 
-            message = "Treda API is working!",
-            timestamp = DateTime.UtcNow,
-            version = "1.0.0"
-        });
-        
-        return Ok(response);
-    }
-    
     [HttpGet("check-email")]
     public async Task<ActionResult<ApiResponse<object>>> CheckEmail([FromQuery] string email)
     {

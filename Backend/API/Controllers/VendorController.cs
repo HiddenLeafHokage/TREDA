@@ -54,8 +54,13 @@ public class VendorController : ControllerBase
         return Ok(result);
     }
 
-    [HttpPut("branding")]
-    public async Task<ActionResult<ApiResponse<VendorBrandingDto>>> UpdateBranding([FromBody] UpdateVendorBrandingDto dto)
+    /// <summary>
+    /// Update the storefront appearance — shop logo and cover photo only.
+    /// Each can be set once for free, then changed at most every 6 months;
+    /// an early change attempt is rejected and nothing is modified.
+    /// </summary>
+    [HttpPut("store-appearance")]
+    public async Task<ActionResult<ApiResponse<VendorBrandingDto>>> UpdateStoreAppearance([FromBody] UpdateVendorBrandingDto dto)
     {
         if (string.IsNullOrEmpty(VendorId))
             return Unauthorized(ApiResponse<VendorBrandingDto>.ErrorResult("Unauthorized", ResponseCodes.UNAUTHORIZED));

@@ -20,17 +20,20 @@ public class AuthService : IAuthService
     private readonly TredaDbContext _context;
     private readonly ITokenService _tokenService;
     private readonly IEmailService _emailService;
+    private readonly IFileStorageService _storage;
     private readonly ILogger<AuthService> _logger;
-    
+
     public AuthService(
-        TredaDbContext context, 
-        ITokenService tokenService, 
+        TredaDbContext context,
+        ITokenService tokenService,
         IEmailService emailService,
+        IFileStorageService storage,
         ILogger<AuthService> logger)
     {
         _context = context;
         _tokenService = tokenService;
         _emailService = emailService;
+        _storage = storage;
         _logger = logger;
     }
     
@@ -327,10 +330,8 @@ public class AuthService : IAuthService
                 BusinessCategoryIds = selectedCategoryIds,
                 BusinessLocation = vendorDto.BusinessLocation,
                 ShopDescription = vendorDto.ShopDescription,
-                BusinessLogoUrl = string.IsNullOrWhiteSpace(vendorDto.BusinessLogoUrl) ? null : vendorDto.BusinessLogoUrl.Trim(),
-                BusinessCoverPhotoUrl = string.IsNullOrWhiteSpace(vendorDto.BusinessCoverPhotoUrl) ? null : vendorDto.BusinessCoverPhotoUrl.Trim(),
-                BusinessLogoUpdatedAt = string.IsNullOrWhiteSpace(vendorDto.BusinessLogoUrl) ? null : DateTime.UtcNow,
-                BusinessCoverPhotoUpdatedAt = string.IsNullOrWhiteSpace(vendorDto.BusinessCoverPhotoUrl) ? null : DateTime.UtcNow,
+                // Logo/cover are not set at registration — vendors add them later via the
+                // storefront-appearance endpoint. They start with a first-letter avatar.
                 CAC_RC_Number = vendorDto.CAC_RC_Number,
                 DeliveryMethod = vendorDto.DeliveryMethod,
                 UserType = UserType.Vendor,
@@ -404,29 +405,46 @@ public class AuthService : IAuthService
                     ResponseCodes.NOT_FOUND
                 );
             }
-            
-            var verificationToken = await _context.EmailVerificationTokens
-                .FirstOrDefaultAsync(evt => 
-                    evt.UserId == user.Id && 
-                    evt.Token == verificationCode &&
-                    !evt.IsUsed &&
-                    evt.ExpiresAt > DateTime.UtcNow);
-                    
-            if (verificationToken == null)
-            {
+
+            if (user.EmailVerified)
+                return ApiResponse<bool>.SuccessResult(true, "Email is already verified. You can log in.");
+
+            // Trim so trailing spaces / pasted whitespace never cause a false mismatch.
+            var code = verificationCode?.Trim() ?? string.Empty;
+            if (string.IsNullOrEmpty(code))
                 return ApiResponse<bool>.ErrorResult(
-                    "Invalid or expired verification code.",
-                    ResponseCodes.VALIDATION_ERROR
-                );
-            }
-            
+                    "Enter the verification code sent to your email.",
+                    ResponseCodes.VALIDATION_ERROR);
+
+            // Look up by code alone (newest first) so we can report the exact reason it failed
+            // instead of a single "invalid or expired" message that hides what went wrong.
+            var verificationToken = await _context.EmailVerificationTokens
+                .Where(evt => evt.UserId == user.Id && evt.Token == code)
+                .OrderByDescending(evt => evt.CreatedAt)
+                .FirstOrDefaultAsync();
+
+            if (verificationToken == null)
+                return ApiResponse<bool>.ErrorResult(
+                    "Incorrect verification code. It is 6 digits and can start with 0 — enter it exactly as shown.",
+                    ResponseCodes.VALIDATION_ERROR);
+
+            if (verificationToken.IsUsed)
+                return ApiResponse<bool>.ErrorResult(
+                    "This code has already been used. Request a new one with resend-verification-email.",
+                    ResponseCodes.VALIDATION_ERROR);
+
+            if (verificationToken.ExpiresAt <= DateTime.UtcNow)
+                return ApiResponse<bool>.ErrorResult(
+                    "This code has expired. Request a new one with resend-verification-email.",
+                    ResponseCodes.VALIDATION_ERROR);
+
             // Mark email as verified
             user.EmailVerified = true;
             user.UpdatedAt = DateTime.UtcNow;
-            
+
             // Mark token as used
             verificationToken.IsUsed = true;
-            
+
             await _context.SaveChangesAsync();
             
             return ApiResponse<bool>.SuccessResult(
@@ -632,6 +650,14 @@ public class AuthService : IAuthService
     
     private async Task GenerateAndSendEmailVerificationCode(string userId)
     {
+        // Invalidate any previous unused codes so only the newest code works — avoids
+        // confusion when a user requests several codes and tries an older one.
+        var previousCodes = await _context.EmailVerificationTokens
+            .Where(t => t.UserId == userId && !t.IsUsed)
+            .ToListAsync();
+        foreach (var previous in previousCodes)
+            previous.IsUsed = true;
+
         var verificationCode = _tokenService.GenerateRandomCode();
         var verificationToken = new EmailVerificationToken
         {
@@ -775,6 +801,10 @@ public class AuthService : IAuthService
         if (user == null)
             return ApiResponse<VendorBrandingDto>.ErrorResult("Vendor not found.", ResponseCodes.NOT_FOUND);
 
+        // Remember what we'll be replacing so we can delete the orphaned files after a successful save.
+        var previousLogoUrl = user.BusinessLogoUrl;
+        var previousCoverUrl = user.BusinessCoverPhotoUrl;
+
         if (dto.BusinessLogoUrl != null)
         {
             var logoError = TryUpdateBrandingAsset(
@@ -811,6 +841,15 @@ public class AuthService : IAuthService
 
         user.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
+
+        // Best-effort cleanup of replaced assets (only when the URL actually changed).
+        if (!string.IsNullOrWhiteSpace(previousLogoUrl) &&
+            !string.Equals(previousLogoUrl, user.BusinessLogoUrl, StringComparison.OrdinalIgnoreCase))
+            await _storage.DeleteByUrlAsync(previousLogoUrl);
+
+        if (!string.IsNullOrWhiteSpace(previousCoverUrl) &&
+            !string.Equals(previousCoverUrl, user.BusinessCoverPhotoUrl, StringComparison.OrdinalIgnoreCase))
+            await _storage.DeleteByUrlAsync(previousCoverUrl);
 
         return ApiResponse<VendorBrandingDto>.SuccessResult(
             VendorBrandingHelper.MapBranding(user),
