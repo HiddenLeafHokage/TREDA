@@ -11,10 +11,10 @@ public interface IAuthService
     Task<ApiResponse<AuthResponseDto>> LoginAsync(LoginDto loginDto);
     Task<ApiResponse<AuthResponseDto>> RefreshTokenAsync(string token, string refreshToken);
     Task<ApiResponse<bool>> RevokeTokenAsync(string userId);
-    Task<ApiResponse<AuthResponseDto>> GoogleLoginAsync(string googleToken);
     
     // Enhanced methods with ApiResponse
-    Task<ApiResponse<AuthResponseDto>> RegisterVendorAsync(VendorRegistrationDto vendorDto);
+    /// <summary>Registers a vendor. Pass <paramref name="logoUrl"/> (already uploaded) to set the shop logo at sign-up.</summary>
+    Task<ApiResponse<AuthResponseDto>> RegisterVendorAsync(VendorRegistrationDto vendorDto, string? logoUrl = null);
     Task<ApiResponse<bool>> VerifyEmailAsync(string email, string verificationCode);
     Task<ApiResponse<bool>> ResendVerificationEmailAsync(string email);
     Task<ApiResponse<bool>> RequestPasswordResetAsync(ForgotPasswordDto forgotPasswordDto);

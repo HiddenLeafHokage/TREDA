@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 
@@ -23,20 +24,10 @@ public class AuthFlowTests : IntegrationTestBase
     }
 
     [Fact]
-    public async Task Register_with_optional_logo_saves_it()
+    public async Task New_vendor_has_no_logo_and_shows_first_letter_initial()
     {
         var client = NewClient();
-        await CreateVendorAsync(client, logoUrl: "/uploads/my-logo.jpg");
-
-        var profile = await DataAsync(await client.GetAsync("/api/vendor/profile"));
-        Assert.Equal("/uploads/my-logo.jpg", profile.GetProperty("businessLogoUrl").GetString());
-    }
-
-    [Fact]
-    public async Task Register_without_logo_falls_back_to_initial()
-    {
-        var client = NewClient();
-        await CreateVendorAsync(client); // no logo provided
+        await CreateVendorAsync(client); // registration never sets a logo
 
         var profile = await DataAsync(await client.GetAsync("/api/vendor/profile"));
         Assert.Equal(JsonValueKind.Null, profile.GetProperty("businessLogoUrl").ValueKind);
@@ -46,26 +37,50 @@ public class AuthFlowTests : IntegrationTestBase
     }
 
     [Fact]
+    public async Task Register_vendor_with_logo_saves_the_logo()
+    {
+        var client = NewClient();
+        var email = $"logo-{Guid.NewGuid():N}@example.com";
+        var phone = $"080{Random.Shared.Next(10_000_000, 99_999_999)}";
+
+        using var form = new MultipartFormDataContent
+        {
+            { new StringContent("Logo Owner"), "fullName" },
+            { new StringContent($"Logo Shop {Guid.NewGuid():N}"[..20]), "businessName" },
+            { new StringContent(email), "email" },
+            { new StringContent(phone), "phoneNumber" },
+            { new StringContent("Password@123"), "password" },
+            { new StringContent("Password@123"), "confirmPassword" },
+            { new StringContent("cat-food"), "businessCategoryIds" },
+            { new StringContent("Abuja, Nigeria"), "businessLocation" },
+            { new StringContent("A shop with a logo."), "shopDescription" },
+            { new StringContent("Both"), "deliveryMethod" },
+            { new StringContent("BN-4321"), "caC_RC_Number" },
+        };
+        var image = new ByteArrayContent(new byte[] { 0xFF, 0xD8, 0xFF, 0xE0 });
+        image.Headers.ContentType = new MediaTypeHeaderValue("image/jpeg");
+        form.Add(image, "logo", "logo.jpg");
+
+        var data = await DataAsync(await client.PostAsync("/api/auth/register-vendor", form));
+        var token = data.GetProperty("token").GetString();
+
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var profile = await DataAsync(await client.GetAsync("/api/vendor/profile"));
+
+        var logoUrl = profile.GetProperty("businessLogoUrl");
+        Assert.Equal(JsonValueKind.String, logoUrl.ValueKind);
+        Assert.False(string.IsNullOrEmpty(logoUrl.GetString()));
+    }
+
+    [Fact]
     public async Task Login_before_verification_is_forbidden()
     {
         var client = NewClient();
         var email = $"unverified-{Guid.NewGuid():N}@example.com";
         var phone = $"080{Random.Shared.Next(10_000_000, 99_999_999)}";
 
-        var register = await client.PostAsJsonAsync("/api/auth/register-vendor", new
-        {
-            fullName = "Unverified Owner",
-            businessName = $"Unverified {Guid.NewGuid():N}"[..18],
-            email,
-            phoneNumber = phone,
-            password = "Password@123",
-            confirmPassword = "Password@123",
-            businessCategoryIds = new[] { "cat-food" },
-            businessLocation = "Lagos",
-            shopDescription = "Not verified yet.",
-            deliveryMethod = "Both",
-            caC_RC_Number = "BN-1234"
-        });
+        using var form = VendorForm(email, phone);
+        var register = await client.PostAsync("/api/auth/register-vendor", form);
         register.EnsureSuccessStatusCode();
 
         var login = await client.PostAsJsonAsync("/api/auth/login", new { email, password = "Password@123", rememberMe = false });
@@ -79,20 +94,8 @@ public class AuthFlowTests : IntegrationTestBase
         var email = $"wrongcode-{Guid.NewGuid():N}@example.com";
         var phone = $"080{Random.Shared.Next(10_000_000, 99_999_999)}";
 
-        var register = await client.PostAsJsonAsync("/api/auth/register-vendor", new
-        {
-            fullName = "Wrong Code",
-            businessName = $"WrongCode {Guid.NewGuid():N}"[..18],
-            email,
-            phoneNumber = phone,
-            password = "Password@123",
-            confirmPassword = "Password@123",
-            businessCategoryIds = new[] { "cat-food" },
-            businessLocation = "Kano",
-            shopDescription = "Will fail verification.",
-            deliveryMethod = "Both",
-            caC_RC_Number = "BN-9999"
-        });
+        using var form = VendorForm(email, phone);
+        var register = await client.PostAsync("/api/auth/register-vendor", form);
         register.EnsureSuccessStatusCode();
 
         var verify = await client.PostAsJsonAsync("/api/auth/verify-email", new { email, verificationCode = "000000" });

@@ -22,27 +22,34 @@ public abstract class IntegrationTestBase
     /// <summary>A registered, verified, logged-in vendor with the given category selected.</summary>
     protected record Vendor(string Id, string Email, string Token, string Slug);
 
+    /// <summary>
+    /// Builds the multipart registration form (no logo). Registration is multipart/form-data;
+    /// add a "logo" file part to the returned content to include a logo.
+    /// </summary>
+    protected static MultipartFormDataContent VendorForm(string email, string phone, string categoryId = "cat-food")
+        => new()
+        {
+            { new StringContent("Test Owner"), "fullName" },
+            { new StringContent($"Test Shop {Guid.NewGuid():N}"[..20]), "businessName" },
+            { new StringContent(email), "email" },
+            { new StringContent(phone), "phoneNumber" },
+            { new StringContent("Password@123"), "password" },
+            { new StringContent("Password@123"), "confirmPassword" },
+            { new StringContent(categoryId), "businessCategoryIds" },
+            { new StringContent("Abuja, Nigeria"), "businessLocation" },
+            { new StringContent("A shop created by the integration tests."), "shopDescription" },
+            { new StringContent("Both"), "deliveryMethod" },
+            { new StringContent("BN-4321"), "caC_RC_Number" },
+        };
+
     /// <summary>Registers a vendor, reads the code from the DB, verifies, logs in, and returns the session.</summary>
-    protected async Task<Vendor> CreateVendorAsync(HttpClient client, string categoryId = "cat-food", string? logoUrl = null)
+    protected async Task<Vendor> CreateVendorAsync(HttpClient client, string categoryId = "cat-food")
     {
         var email = $"vendor-{Guid.NewGuid():N}@example.com";
         var phone = $"080{Random.Shared.Next(10_000_000, 99_999_999)}";
 
-        var register = await client.PostAsJsonAsync("/api/auth/register-vendor", new
-        {
-            fullName = "Test Owner",
-            businessName = $"Test Shop {Guid.NewGuid():N}"[..20],
-            email,
-            phoneNumber = phone,
-            password = "Password@123",
-            confirmPassword = "Password@123",
-            businessCategoryIds = new[] { categoryId },
-            businessLocation = "Abuja, Nigeria",
-            shopDescription = "A shop created by the integration tests.",
-            businessLogoUrl = logoUrl,
-            deliveryMethod = "Both",
-            caC_RC_Number = "BN-4321"
-        });
+        using var form = VendorForm(email, phone, categoryId);
+        var register = await client.PostAsync("/api/auth/register-vendor", form);
         var userId = (await DataAsync(register)).GetProperty("id").GetString()!;
 
         var code = await GetVerificationCodeAsync(userId);

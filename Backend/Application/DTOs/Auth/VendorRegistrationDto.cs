@@ -37,23 +37,21 @@ namespace Application.DTOs.Auth
     public string ConfirmPassword { get; set; } = string.Empty;
     
     // Business Details
-    public string BusinessCategory { get; set; } = string.Empty;
-
+    // Pick categories by id (from GET /api/categories). The display name is derived from these,
+    // so there is no free-text "businessCategory" field on input.
     [MinLength(1, ErrorMessage = "Select at least one business category")]
     public List<string> BusinessCategoryIds { get; set; } = new();
-    
+
     [Required(ErrorMessage = "Business location is required")]
     public string BusinessLocation { get; set; } = string.Empty;
-    
+
     [Required(ErrorMessage = "Shop description is required")]
     [MaxLength(1000, ErrorMessage = "Shop description cannot exceed 1000 characters")]
     public string ShopDescription { get; set; } = string.Empty;
 
-    /// <summary>
-    /// Optional shop logo URL (from POST /api/upload). If omitted, the storefront shows the
-    /// vendor's first-letter avatar. The cover photo is added later via the store-appearance endpoint.
-    /// </summary>
-    public string? BusinessLogoUrl { get; set; }
+    // Logo is NOT set at registration (you need a token to upload first). New vendors start with a
+    // first-letter avatar and add a logo afterwards via the 3-step flow:
+    // register -> POST /api/upload (with token) -> PUT /api/vendor/store-appearance.
 
     [Required(ErrorMessage = "Delivery method is required")]
     public DeliveryMethod DeliveryMethod { get; set; }

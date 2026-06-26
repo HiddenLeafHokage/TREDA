@@ -17,11 +17,13 @@ namespace API.Controllers;
 public class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
+    private readonly IFileStorageService _storage;
     private readonly ILogger<AuthController> _logger;
-    
-    public AuthController(IAuthService authService, ILogger<AuthController> logger)
+
+    public AuthController(IAuthService authService, IFileStorageService storage, ILogger<AuthController> logger)
     {
         _authService = authService;
+        _storage = storage;
         _logger = logger;
     }
     
@@ -40,12 +42,45 @@ public class AuthController : ControllerBase
         return Ok(ApiResponse<object>.SuccessResult(data, "Email is available."));
     }
 
+    /// <summary>
+    /// Register a vendor. Send the fields as multipart/form-data, with an optional image file
+    /// field "logo". If a logo is included it is uploaded and saved on the new account; if omitted,
+    /// the vendor starts with a first-letter avatar (they can add a logo later via store-appearance).
+    /// </summary>
     [HttpPost("register-vendor")]
-    public async Task<ActionResult<ApiResponse<AuthResponseDto>>> RegisterVendor(VendorRegistrationDto vendorDto)
+    [Consumes("multipart/form-data")]
+    public async Task<ActionResult<ApiResponse<AuthResponseDto>>> RegisterVendor(
+        [FromForm] VendorRegistrationDto vendorDto,
+        IFormFile? logo,
+        CancellationToken cancellationToken = default)
     {
-        var result = await _authService.RegisterVendorAsync(vendorDto);
-        
-        // Return appropriate HTTP status based on the response code
+        string? logoUrl = null;
+        string? logoPublicId = null;
+
+        if (logo is { Length: > 0 })
+        {
+            var ext = Path.GetExtension(logo.FileName).ToLowerInvariant();
+            if (string.IsNullOrEmpty(ext) || !AppConstants.AllowedUploadExtensions.Contains(ext))
+                return BadRequest(ApiResponse<AuthResponseDto>.ErrorResult(
+                    $"Allowed logo types: {string.Join(", ", AppConstants.AllowedUploadExtensions)}.",
+                    ResponseCodes.VALIDATION_ERROR));
+
+            if (logo.Length > AppConstants.MaxUploadSizeBytes)
+                return BadRequest(ApiResponse<AuthResponseDto>.ErrorResult(
+                    "Logo too large. Max 5 MB.", ResponseCodes.VALIDATION_ERROR));
+
+            await using var stream = logo.OpenReadStream();
+            var stored = await _storage.UploadAsync(stream, logo.FileName, logo.ContentType, cancellationToken);
+            logoUrl = stored.Url;
+            logoPublicId = stored.PublicId;
+        }
+
+        var result = await _authService.RegisterVendorAsync(vendorDto, logoUrl);
+
+        // If the account couldn't be created, don't leave the uploaded logo orphaned.
+        if (logoPublicId != null && result.Code is not (ResponseCodes.SUCCESS or ResponseCodes.CREATED))
+            await _storage.DeleteAsync(logoPublicId, cancellationToken);
+
         return result.Code switch
         {
             ResponseCodes.SUCCESS or ResponseCodes.CREATED => Ok(result),
@@ -54,7 +89,7 @@ public class AuthController : ControllerBase
             _ => StatusCode(500, result)
         };
     }
-    
+
     [HttpPost("verify-email")]
     public async Task<ActionResult<ApiResponse<bool>>> VerifyEmail(VerifyEmailDto verifyEmailDto)
     {
@@ -143,48 +178,5 @@ public class AuthController : ControllerBase
         };
     }
 
-    [HttpPost("google-login")]
-    public async Task<ActionResult<ApiResponse<AuthResponseDto>>> GoogleLogin(GoogleLoginDto googleLoginDto)
-    {
-        var result = await _authService.GoogleLoginAsync(googleLoginDto.GoogleToken);
-        
-        return result.Code switch
-        {
-            ResponseCodes.SUCCESS => Ok(result),
-            ResponseCodes.SERVICE_UNAVAILABLE => StatusCode(501, result),
-            _ => StatusCode(500, result)
-        };
-    }
-    
-    [SimpleAuthorize(AppConstants.Roles.Buyer, AppConstants.Roles.Vendor, AppConstants.Roles.Admin)]
-    [HttpGet("profile")]
-    public ActionResult<ApiResponse<object>> GetProfile()
-    {
-        try
-        {
-            var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-            var userEmail = User.FindFirst(System.Security.Claims.ClaimTypes.Email)?.Value;
-            var userName = User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value;
-            var userRole = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value;
-            var emailVerified = User.FindFirst("EmailVerified")?.Value;
-            var businessName = User.FindFirst("BusinessName")?.Value;
-            
-            var profileData = new {
-                userId,
-                userEmail,
-                userName,
-                userRole,
-                emailVerified = bool.TryParse(emailVerified, out var verified) ? verified : false,
-                businessName
-            };
-            
-            return Ok(ApiResponse<object>.SuccessResult(profileData, "Profile retrieved successfully!"));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error retrieving user profile");
-            return StatusCode(500, ApiResponse<object>.ErrorResult("An error occurred while retrieving profile."));
-        }
-    }
 }
 

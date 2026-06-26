@@ -9,7 +9,9 @@ COPY Application/Application.csproj Application/
 COPY Domain/Domain.csproj Domain/
 COPY Persistence/Persistence.csproj Persistence/
 
-RUN dotnet restore
+# Restore only the API project (pulls in Application/Domain/Persistence) — the test project
+# is part of the solution but must not be built into the production image.
+RUN dotnet restore API/API.csproj
 
 # Copy everything else and publish
 COPY . .
