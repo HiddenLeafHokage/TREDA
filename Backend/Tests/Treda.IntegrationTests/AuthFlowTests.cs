@@ -24,6 +24,22 @@ public class AuthFlowTests : IntegrationTestBase
     }
 
     [Fact]
+    public async Task Login_response_includes_initial_and_selected_categories()
+    {
+        var client = NewClient();
+        var vendor = await CreateVendorAsync(client, categoryId: "cat-food");
+
+        var login = await DataAsync(await client.PostAsJsonAsync("/api/auth/login",
+            new { email = vendor.Email, password = "Password@123", rememberMe = true }));
+
+        Assert.False(string.IsNullOrEmpty(login.GetProperty("displayInitial").GetString()));
+        Assert.Equal(JsonValueKind.Null, login.GetProperty("businessLogoUrl").ValueKind); // no logo at signup
+        Assert.Contains(
+            login.GetProperty("businessCategories").EnumerateArray(),
+            c => c.GetProperty("id").GetString() == "cat-food");
+    }
+
+    [Fact]
     public async Task New_vendor_has_no_logo_and_shows_first_letter_initial()
     {
         var client = NewClient();

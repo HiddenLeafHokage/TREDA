@@ -2,6 +2,7 @@
 using System.Security.Claims;
 using Application.Constants;
 using Application.DTOs.Auth;
+using Application.DTOs.Category;
 using Application.DTOs.Common;
 using Application.DTOs.Vendor;
 using Application.Helpers;
@@ -90,20 +91,9 @@ public class AuthService : IAuthService
             user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
             await _context.SaveChangesAsync();
             
-            var authResponse = new AuthResponseDto
-            {
-                Id = user.Id,
-                FullName = user.FullName,
-                Email = user.Email,
-                UserType = user.UserType.ToString(),
-                EmailVerified = user.EmailVerified,
-                BusinessName = user.BusinessName,
-                ProfileCompleted = IsVendorProfileComplete(user),
-                Token = token,
-                RefreshToken = refreshToken,
-                Expiration = DateTime.UtcNow.AddMinutes(60)
-            };
-            
+            var authResponse = await BuildAuthResponseAsync(
+                user, token, refreshToken, DateTime.UtcNow.AddMinutes(60));
+
             return ApiResponse<AuthResponseDto>.SuccessResult(authResponse, "Registration successful!");
         }
         catch (Exception ex)
@@ -154,20 +144,9 @@ public class AuthService : IAuthService
                 
             await _context.SaveChangesAsync();
             
-            var authResponse = new AuthResponseDto
-            {
-                Id = user.Id,
-                FullName = user.FullName,
-                Email = user.Email,
-                UserType = user.UserType.ToString(),
-                EmailVerified = user.EmailVerified,
-                BusinessName = user.BusinessName,
-                ProfileCompleted = IsVendorProfileComplete(user),
-                Token = token,
-                RefreshToken = refreshToken,
-                Expiration = DateTime.UtcNow.AddMinutes(tokenExpirationMinutes)
-            };
-            
+            var authResponse = await BuildAuthResponseAsync(
+                user, token, refreshToken, DateTime.UtcNow.AddMinutes(tokenExpirationMinutes));
+
             return ApiResponse<AuthResponseDto>.SuccessResult(authResponse, "Login successful!");
         }
         catch (Exception ex)
@@ -215,20 +194,9 @@ public class AuthService : IAuthService
             
             await _context.SaveChangesAsync();
             
-            var authResponse = new AuthResponseDto
-            {
-                Id = user.Id,
-                FullName = user.FullName,
-                Email = user.Email,
-                UserType = user.UserType.ToString(),
-                EmailVerified = user.EmailVerified,
-                BusinessName = user.BusinessName,
-                ProfileCompleted = IsVendorProfileComplete(user),
-                Token = newToken,
-                RefreshToken = newRefreshToken,
-                Expiration = DateTime.UtcNow.AddMinutes(60)
-            };
-            
+            var authResponse = await BuildAuthResponseAsync(
+                user, newToken, newRefreshToken, DateTime.UtcNow.AddMinutes(60));
+
             return ApiResponse<AuthResponseDto>.SuccessResult(authResponse, "Token refreshed successfully!");
         }
         catch (Exception ex)
@@ -356,22 +324,11 @@ public class AuthService : IAuthService
             user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
             await _context.SaveChangesAsync();
             
-            var authResponse = new AuthResponseDto
-            {
-                Id = user.Id,
-                FullName = user.FullName,
-                Email = user.Email,
-                UserType = user.UserType.ToString(),
-                EmailVerified = user.EmailVerified,
-                BusinessName = user.BusinessName,
-                ProfileCompleted = true,
-                Token = token,
-                RefreshToken = refreshToken,
-                Expiration = DateTime.UtcNow.AddMinutes(60)
-            };
-            
+            var authResponse = await BuildAuthResponseAsync(
+                user, token, refreshToken, DateTime.UtcNow.AddMinutes(60));
+
             return ApiResponse<AuthResponseDto>.SuccessResult(
-                authResponse, 
+                authResponse,
                 "Vendor registration successful! Please check your email for verification code."
             );
         }
@@ -671,6 +628,46 @@ public class AuthService : IAuthService
         }
     }
     
+    /// <summary>
+    /// Builds the auth response (login/register/refresh) including the display fields the frontend
+    /// needs right after login: logo URL, first-letter avatar, and the vendor's selected categories.
+    /// </summary>
+    private async Task<AuthResponseDto> BuildAuthResponseAsync(User user, string token, string refreshToken, DateTime expiration)
+    {
+        var categoryIds = user.BusinessCategoryIds;
+        var categories = categoryIds.Count == 0
+            ? new List<CategoryDto>()
+            : await _context.ProductCategories
+                .Where(c => categoryIds.Contains(c.Id))
+                .OrderBy(c => c.DisplayOrder)
+                .Select(c => new CategoryDto
+                {
+                    Id = c.Id,
+                    Name = c.Name,
+                    Slug = c.Slug,
+                    Description = c.Description,
+                    DisplayOrder = c.DisplayOrder
+                })
+                .ToListAsync();
+
+        return new AuthResponseDto
+        {
+            Id = user.Id,
+            FullName = user.FullName,
+            Email = user.Email,
+            UserType = user.UserType.ToString(),
+            EmailVerified = user.EmailVerified,
+            BusinessName = user.BusinessName,
+            BusinessLogoUrl = user.BusinessLogoUrl,
+            DisplayInitial = VendorBrandingHelper.GetDisplayInitial(user),
+            BusinessCategories = categories,
+            ProfileCompleted = IsVendorProfileComplete(user),
+            Token = token,
+            RefreshToken = refreshToken,
+            Expiration = expiration
+        };
+    }
+
     private bool IsVendorProfileComplete(User user)
     {
         if (user.UserType != UserType.Vendor) return true;
