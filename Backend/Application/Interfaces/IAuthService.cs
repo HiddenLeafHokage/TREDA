@@ -25,4 +25,5 @@ public interface IAuthService
     Task<ApiResponse<bool>> UpdateVendorProfileAsync(string userId, Application.DTOs.Vendor.UpdateVendorProfileDto dto);
     Task<ApiResponse<Application.DTOs.Vendor.VendorBrandingDto>> UpdateVendorBrandingAsync(string userId, Application.DTOs.Vendor.UpdateVendorBrandingDto dto);
     Task<bool> EmailExistsAsync(string email);
+    Task<bool> PhoneExistsAsync(string phoneNumber);
 }

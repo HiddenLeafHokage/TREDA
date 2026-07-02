@@ -89,6 +89,25 @@ public class AuthFlowTests : IntegrationTestBase
     }
 
     [Fact]
+    public async Task Check_phone_is_available_then_taken_after_registration()
+    {
+        var client = NewClient();
+        var email = $"phone-{Guid.NewGuid():N}@example.com";
+        var phone = $"080{Random.Shared.Next(10_000_000, 99_999_999)}";
+
+        // Free before anyone uses it.
+        var before = await client.GetAsync($"/api/auth/check-phone?phoneNumber={phone}");
+        Assert.Equal(HttpStatusCode.OK, before.StatusCode);
+
+        using var form = VendorForm(email, phone);
+        (await client.PostAsync("/api/auth/register-vendor", form)).EnsureSuccessStatusCode();
+
+        // Taken afterwards.
+        var after = await client.GetAsync($"/api/auth/check-phone?phoneNumber={phone}");
+        Assert.Equal(HttpStatusCode.Conflict, after.StatusCode);
+    }
+
+    [Fact]
     public async Task Login_before_verification_is_forbidden()
     {
         var client = NewClient();

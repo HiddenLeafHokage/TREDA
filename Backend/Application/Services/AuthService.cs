@@ -850,6 +850,21 @@ public class AuthService : IAuthService
     public async Task<bool> EmailExistsAsync(string email)
         => await _context.Users.AnyAsync(u => u.Email == email);
 
+    /// <summary>True if any account already uses this phone (normalized the same way as registration).</summary>
+    public async Task<bool> PhoneExistsAsync(string phoneNumber)
+    {
+        var normalized = NormalizePhone(phoneNumber);
+        if (string.IsNullOrEmpty(normalized))
+            return false;
+
+        var existingPhones = await _context.Users
+            .Where(u => u.PhoneNumber != null)
+            .Select(u => u.PhoneNumber)
+            .ToListAsync();
+
+        return existingPhones.Any(p => NormalizePhone(p) == normalized);
+    }
+
     /// <summary>Normalize for uniqueness: digits only; leading 0 treated as Nigerian (+234).</summary>
     private static string? NormalizePhone(string? phone)
     {

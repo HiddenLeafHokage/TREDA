@@ -42,6 +42,21 @@ public class AuthController : ControllerBase
         return Ok(ApiResponse<object>.SuccessResult(data, "Email is available."));
     }
 
+    [HttpGet("check-phone")]
+    public async Task<ActionResult<ApiResponse<object>>> CheckPhone([FromQuery] string phoneNumber)
+    {
+        if (string.IsNullOrWhiteSpace(phoneNumber))
+            return BadRequest(ApiResponse<object>.ErrorResult("Provide a valid phone number.", ResponseCodes.VALIDATION_ERROR));
+
+        var exists = await _authService.PhoneExistsAsync(phoneNumber.Trim());
+        var data = (object)new { available = !exists };
+
+        if (exists)
+            return Conflict(ApiResponse<object>.ErrorResult("This phone number is already linked to an account.", ResponseCodes.CONFLICT));
+
+        return Ok(ApiResponse<object>.SuccessResult(data, "Phone number is available."));
+    }
+
     /// <summary>
     /// Register a vendor. Send the fields as multipart/form-data, with an optional image file
     /// field "logo". If a logo is included it is uploaded and saved on the new account; if omitted,
