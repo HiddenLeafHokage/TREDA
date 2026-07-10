@@ -1,5 +1,6 @@
 // API/Controllers/AuthController.cs
 using API.Attributes;
+using API.Helpers;
 using Microsoft.AspNetCore.RateLimiting;
 using Application.Constants;
 using Application.DTOs.Auth;
@@ -69,32 +70,15 @@ public class AuthController : ControllerBase
         IFormFile? logo,
         CancellationToken cancellationToken = default)
     {
-        string? logoUrl = null;
-        string? logoPublicId = null;
+        var (logoError, logoStored) = await ImageUploadHelper.TryStoreAsync(logo, _storage, "logo", cancellationToken);
+        if (logoError != null)
+            return BadRequest(ApiResponse<AuthResponseDto>.ErrorResult(logoError, ResponseCodes.VALIDATION_ERROR));
 
-        if (logo is { Length: > 0 })
-        {
-            var ext = Path.GetExtension(logo.FileName).ToLowerInvariant();
-            if (string.IsNullOrEmpty(ext) || !AppConstants.AllowedUploadExtensions.Contains(ext))
-                return BadRequest(ApiResponse<AuthResponseDto>.ErrorResult(
-                    $"Allowed logo types: {string.Join(", ", AppConstants.AllowedUploadExtensions)}.",
-                    ResponseCodes.VALIDATION_ERROR));
-
-            if (logo.Length > AppConstants.MaxUploadSizeBytes)
-                return BadRequest(ApiResponse<AuthResponseDto>.ErrorResult(
-                    "Logo too large. Max 5 MB.", ResponseCodes.VALIDATION_ERROR));
-
-            await using var stream = logo.OpenReadStream();
-            var stored = await _storage.UploadAsync(stream, logo.FileName, logo.ContentType, cancellationToken);
-            logoUrl = stored.Url;
-            logoPublicId = stored.PublicId;
-        }
-
-        var result = await _authService.RegisterVendorAsync(vendorDto, logoUrl);
+        var result = await _authService.RegisterVendorAsync(vendorDto, logoStored?.Url);
 
         // If the account couldn't be created, don't leave the uploaded logo orphaned.
-        if (logoPublicId != null && result.Code is not (ResponseCodes.SUCCESS or ResponseCodes.CREATED))
-            await _storage.DeleteAsync(logoPublicId, cancellationToken);
+        if (result.Code is not (ResponseCodes.SUCCESS or ResponseCodes.CREATED))
+            await _storage.DeleteAsync(logoStored?.PublicId, cancellationToken);
 
         return result.Code switch
         {

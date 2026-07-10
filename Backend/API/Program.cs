@@ -9,6 +9,9 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.ResponseCompression;
+using Npgsql;
+using System.IO.Compression;
 using System.Text;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
@@ -33,10 +36,11 @@ try
               .ReadFrom.Services(services)
               .Enrich.FromLogContext();
 
+        // WriteTo.Async keeps console I/O off the request thread (Serilog.Sinks.Async).
         if (ctx.HostingEnvironment.IsDevelopment())
-            config.WriteTo.Console();
+            config.WriteTo.Async(a => a.Console());
         else
-            config.WriteTo.Console(new CompactJsonFormatter()); // structured JSON for Railway log drain
+            config.WriteTo.Async(a => a.Console(new CompactJsonFormatter())); // structured JSON for log drains
     });
 
     // ── Sentry ───────────────────────────────────────────────────────────────
@@ -96,7 +100,20 @@ try
         : builder.Configuration.GetConnectionString("DefaultConnection")
           ?? throw new InvalidOperationException("No database connection string configured.");
 
-    builder.Services.AddDbContext<TredaDbContext>(options =>
+    // Tune the Npgsql connection pool. Defaults (MaxPoolSize=100) can exhaust Neon's free-tier
+    // connection ceiling, and Neon scales to zero when idle — which silently kills pooled
+    // connections. A short idle lifetime prunes them before they go stale.
+    connectionString = new NpgsqlConnectionStringBuilder(connectionString)
+    {
+        MaxPoolSize = 20,
+        MinPoolSize = 0,
+        ConnectionIdleLifetime = 60, // seconds — drop idle connections before Neon suspends
+        Timeout = 15,                // connect timeout (Neon cold start)
+        CommandTimeout = 30
+    }.ConnectionString;
+
+    // DbContext pooling reuses context instances instead of allocating one per request.
+    builder.Services.AddDbContextPool<TredaDbContext>(options =>
     {
         options.UseNpgsql(connectionString);
         options.ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning));
@@ -156,6 +173,21 @@ try
                 AutoReplenishment = true
             }));
     });
+
+    // ── Response compression ─────────────────────────────────────────────────
+    // JSON payloads (product/vendor lists) shrink ~70-80%. EnableForHttps is required because
+    // ASP.NET disables compression over TLS by default.
+    builder.Services.AddResponseCompression(options =>
+    {
+        options.EnableForHttps = true;
+        options.Providers.Add<BrotliCompressionProvider>();
+        options.Providers.Add<GzipCompressionProvider>();
+    });
+    builder.Services.Configure<BrotliCompressionProviderOptions>(o => o.Level = CompressionLevel.Fastest);
+    builder.Services.Configure<GzipCompressionProviderOptions>(o => o.Level = CompressionLevel.Fastest);
+
+    // ── In-memory cache (categories; per-instance — swap for Redis if you scale out) ──────────
+    builder.Services.AddMemoryCache();
 
     // ── HTTP client (used by EmailService to call Brevo REST API) ────────────
     builder.Services.AddHttpClient();
@@ -266,6 +298,9 @@ try
     }
 
     // ── HTTP pipeline ─────────────────────────────────────────────────────────
+    // Compression must run before anything writes a response body.
+    app.UseResponseCompression();
+
     // Swagger enabled in all environments so frontend/QA can explore the API
     app.UseSwagger();
     app.UseSwaggerUI(c =>

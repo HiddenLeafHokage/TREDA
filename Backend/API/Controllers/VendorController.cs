@@ -1,4 +1,5 @@
 using API.Attributes;
+using API.Helpers;
 using Application.Constants;
 using Application.DTOs.Common;
 using Application.DTOs.Order;
@@ -18,13 +19,20 @@ public class VendorController : ControllerBase
     private readonly IAuthService _authService;
     private readonly IProductService _productService;
     private readonly IOrderService _orderService;
+    private readonly IFileStorageService _storage;
     private readonly ILogger<VendorController> _logger;
 
-    public VendorController(IAuthService authService, IProductService productService, IOrderService orderService, ILogger<VendorController> logger)
+    public VendorController(
+        IAuthService authService,
+        IProductService productService,
+        IOrderService orderService,
+        IFileStorageService storage,
+        ILogger<VendorController> logger)
     {
         _authService = authService;
         _productService = productService;
         _orderService = orderService;
+        _storage = storage;
         _logger = logger;
     }
 
@@ -55,17 +63,47 @@ public class VendorController : ControllerBase
     }
 
     /// <summary>
-    /// Update the storefront appearance — shop logo and cover photo only.
-    /// Each can be set once for free, then changed at most every 6 months;
-    /// an early change attempt is rejected and nothing is modified.
+    /// Update the storefront appearance — shop logo and cover photo only. Send as multipart/form-data.
+    /// Attach the image files directly as "logo" and/or "cover" (they are uploaded for you), or pass
+    /// already-hosted URLs as the "businessLogoUrl" / "businessCoverPhotoUrl" form fields.
+    /// Each can be set once for free, then changed at most every 6 months; an early change attempt is
+    /// rejected and nothing is modified.
     /// </summary>
     [HttpPut("store-appearance")]
-    public async Task<ActionResult<ApiResponse<VendorBrandingDto>>> UpdateStoreAppearance([FromBody] UpdateVendorBrandingDto dto)
+    [Consumes("multipart/form-data")]
+    public async Task<ActionResult<ApiResponse<VendorBrandingDto>>> UpdateStoreAppearance(
+        [FromForm] UpdateVendorBrandingDto dto,
+        IFormFile? logo,
+        IFormFile? cover,
+        CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(VendorId))
             return Unauthorized(ApiResponse<VendorBrandingDto>.ErrorResult("Unauthorized", ResponseCodes.UNAUTHORIZED));
 
+        var (logoError, logoStored) = await ImageUploadHelper.TryStoreAsync(logo, _storage, "logo", cancellationToken);
+        if (logoError != null)
+            return BadRequest(ApiResponse<VendorBrandingDto>.ErrorResult(logoError, ResponseCodes.VALIDATION_ERROR));
+        if (logoStored != null)
+            dto.BusinessLogoUrl = logoStored.Url;
+
+        var (coverError, coverStored) = await ImageUploadHelper.TryStoreAsync(cover, _storage, "cover photo", cancellationToken);
+        if (coverError != null)
+        {
+            await _storage.DeleteAsync(logoStored?.PublicId, cancellationToken); // don't orphan the logo
+            return BadRequest(ApiResponse<VendorBrandingDto>.ErrorResult(coverError, ResponseCodes.VALIDATION_ERROR));
+        }
+        if (coverStored != null)
+            dto.BusinessCoverPhotoUrl = coverStored.Url;
+
         var result = await _authService.UpdateVendorBrandingAsync(VendorId, dto);
+
+        // If the save was rejected (e.g. the 6-month cooldown), delete anything we just uploaded.
+        if (result.Code != ResponseCodes.SUCCESS)
+        {
+            await _storage.DeleteAsync(logoStored?.PublicId, cancellationToken);
+            await _storage.DeleteAsync(coverStored?.PublicId, cancellationToken);
+        }
+
         if (result.Code == ResponseCodes.NOT_FOUND)
             return NotFound(result);
         if (result.Code == ResponseCodes.VALIDATION_ERROR)
