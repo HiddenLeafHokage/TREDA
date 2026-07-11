@@ -106,6 +106,21 @@ public class UploadTests : IntegrationTestBase
     }
 
     [Fact]
+    public async Task Cover_changes_anytime_but_logo_has_a_cooldown()
+    {
+        var client = NewClient();
+        await CreateVendorAsync(client);
+
+        // Cover photo: two changes back-to-back are both allowed (no cooldown).
+        Assert.Equal(HttpStatusCode.OK, (await client.PutAsync("/api/vendor/store-appearance", ImageForm("cover"))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.PutAsync("/api/vendor/store-appearance", ImageForm("cover"))).StatusCode);
+
+        // Logo: first set is allowed, an immediate second change is rejected by the 6-month cooldown.
+        Assert.Equal(HttpStatusCode.OK, (await client.PutAsync("/api/vendor/store-appearance", ImageForm("logo"))).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PutAsync("/api/vendor/store-appearance", ImageForm("logo"))).StatusCode);
+    }
+
+    [Fact]
     public async Task Store_appearance_rejects_a_disallowed_logo_file_type()
     {
         var client = NewClient();

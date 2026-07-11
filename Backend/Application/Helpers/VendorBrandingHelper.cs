@@ -34,7 +34,7 @@ public static class VendorBrandingHelper
             LogoLastChangedAt = user.BusinessLogoUpdatedAt,
             CoverPhotoLastChangedAt = user.BusinessCoverPhotoUpdatedAt,
             LogoChangeAllowedAfter = GetChangeAllowedAfter(user.BusinessLogoUpdatedAt),
-            CoverPhotoChangeAllowedAfter = GetChangeAllowedAfter(user.BusinessCoverPhotoUpdatedAt),
+            CoverPhotoChangeAllowedAfter = null, // cover photo can be changed anytime (no cooldown)
             DisplayInitial = GetDisplayInitial(user)
         };
     }

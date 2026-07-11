@@ -815,19 +815,23 @@ public class AuthService : IAuthService
 
         if (dto.BusinessCoverPhotoUrl != null)
         {
-            var coverError = TryUpdateBrandingAsset(
-                user,
-                dto.BusinessCoverPhotoUrl,
-                user.BusinessCoverPhotoUrl,
-                user.BusinessCoverPhotoUpdatedAt,
-                (url, ts) =>
-                {
-                    user.BusinessCoverPhotoUrl = url;
-                    user.BusinessCoverPhotoUpdatedAt = ts;
-                },
-                "Cover photo");
-            if (coverError != null)
-                return ApiResponse<VendorBrandingDto>.ErrorResult(coverError.Message, coverError.Code);
+            // Cover photo can be changed ANYTIME — no 6-month cooldown (unlike the logo).
+            var normalizedCover = string.IsNullOrWhiteSpace(dto.BusinessCoverPhotoUrl)
+                ? null
+                : dto.BusinessCoverPhotoUrl.Trim();
+
+            if (normalizedCover != null)
+            {
+                var coverError = VendorBrandingHelper.ValidateBrandingImageUrl(normalizedCover, "Cover photo");
+                if (coverError != null)
+                    return ApiResponse<VendorBrandingDto>.ErrorResult(coverError, ResponseCodes.VALIDATION_ERROR);
+            }
+
+            if (!string.Equals(normalizedCover, user.BusinessCoverPhotoUrl, StringComparison.OrdinalIgnoreCase))
+            {
+                user.BusinessCoverPhotoUrl = normalizedCover;
+                user.BusinessCoverPhotoUpdatedAt = normalizedCover != null ? DateTime.UtcNow : null;
+            }
         }
 
         user.UpdatedAt = DateTime.UtcNow;

@@ -66,8 +66,8 @@ public class VendorController : ControllerBase
     /// Update the storefront appearance — shop logo and cover photo only. Send as multipart/form-data.
     /// Attach the image files directly as "logo" and/or "cover" (they are uploaded for you), or pass
     /// already-hosted URLs as the "businessLogoUrl" / "businessCoverPhotoUrl" form fields.
-    /// Each can be set once for free, then changed at most every 6 months; an early change attempt is
-    /// rejected and nothing is modified.
+    /// The LOGO can be changed at most once every 6 months (early attempts are rejected and nothing
+    /// changes). The COVER photo can be changed anytime.
     /// </summary>
     [HttpPut("store-appearance")]
     [Consumes("multipart/form-data")]
