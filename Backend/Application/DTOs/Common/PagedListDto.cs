@@ -13,4 +13,8 @@ public class PagedListDto<T>
 
     /// <summary>When Items is empty, a user-friendly explanation (e.g. "No orders yet").</summary>
     public string? EmptyStateMessage { get; set; }
+
+    /// <summary>Rows hidden behind the paywall (e.g. pending orders beyond a free plan's limit). null = none.</summary>
+    public int? LockedCount { get; set; }
 }
+

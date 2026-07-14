@@ -4,6 +4,7 @@ using Application.DTOs.Product;
 using Application.DTOs.Vendor;
 using Application.Helpers;
 using Application.Interfaces;
+using Application.Subscriptions;
 using Domain.Entities;
 using Domain.Enums;
 using Microsoft.EntityFrameworkCore;
@@ -18,17 +19,38 @@ public class ProductService : IProductService
     private readonly ILogger<ProductService> _logger;
     private readonly IVendorTrafficService _traffic;
     private readonly IFileStorageService _storage;
+    private readonly IVendorNotificationService _notifications;
 
-    public ProductService(TredaDbContext context, ILogger<ProductService> logger, IVendorTrafficService traffic, IFileStorageService storage)
+    public ProductService(
+        TredaDbContext context,
+        ILogger<ProductService> logger,
+        IVendorTrafficService traffic,
+        IFileStorageService storage,
+        IVendorNotificationService notifications)
     {
         _context = context;
         _logger = logger;
         _traffic = traffic;
         _storage = storage;
+        _notifications = notifications;
     }
 
     public async Task<ApiResponse<ProductResponseDto>> CreateAsync(string vendorId, CreateProductDto dto)
     {
+        // Plan gate: free/limited tiers cap how many products a vendor can list.
+        var vendor = await _context.Users.FirstOrDefaultAsync(u => u.Id == vendorId);
+        if (vendor == null)
+            return ApiResponse<ProductResponseDto>.ErrorResult("Vendor not found.", ResponseCodes.NOT_FOUND);
+        var plan = SubscriptionPlans.For(vendor);
+        if (plan.MaxProducts != SubscriptionPlans.Unlimited)
+        {
+            var productCount = await _context.Products.CountAsync(p => p.VendorId == vendorId);
+            if (productCount >= plan.MaxProducts)
+                return ApiResponse<ProductResponseDto>.ErrorResult(
+                    $"You've reached your plan's limit of {plan.MaxProducts} products. Subscribe to add more.",
+                    ResponseCodes.VALIDATION_ERROR);
+        }
+
         var categoryId = NormalizeCategoryId(dto.CategoryId);
         var categoryError = await ValidateVendorCategoryAsync(vendorId, categoryId);
         if (categoryError != null)
@@ -208,7 +230,7 @@ public class ProductService : IProductService
         var pendingOrders = await _context.Orders.CountAsync(o => o.VendorId == vendorId && o.Status == OrderStatus.Pending);
         var totalSales = await _context.Orders
             .Where(o => o.VendorId == vendorId && (o.Status == OrderStatus.Shipped || o.Status == OrderStatus.Completed))
-            .SumAsync(o => o.Amount);
+            .SumAsync(o => o.Total);
 
         var wallet = await _context.VendorWallets.FirstOrDefaultAsync(w => w.VendorId == vendorId);
         var walletBalance = wallet?.Balance ?? 0;
@@ -228,10 +250,12 @@ public class ProductService : IProductService
 
     public async Task<ApiResponse<List<ProductResponseDto>>> GetBestSellingAsync(string vendorId, int limit = AppConstants.DefaultBestSellingLimit)
     {
-        var productIds = await _context.Orders
-            .Where(o => o.VendorId == vendorId && o.ProductId != null && (o.Status == OrderStatus.Shipped || o.Status == OrderStatus.Completed))
-            .GroupBy(o => o.ProductId!)
-            .OrderByDescending(g => g.Count())
+        // Rank by total quantity sold, from line items of shipped/completed orders for this vendor.
+        var productIds = await _context.OrderItems
+            .Where(i => i.Order.VendorId == vendorId &&
+                        (i.Order.Status == OrderStatus.Shipped || i.Order.Status == OrderStatus.Completed))
+            .GroupBy(i => i.ProductId)
+            .OrderByDescending(g => g.Sum(x => x.Quantity))
             .Take(limit)
             .Select(g => g.Key)
             .ToListAsync();
@@ -239,11 +263,16 @@ public class ProductService : IProductService
         if (productIds.Count == 0)
             return ApiResponse<List<ProductResponseDto>>.SuccessResult(new List<ProductResponseDto>(), AppConstants.EmptyStateMessages.BestSellingNone);
 
+        // A product could have been deleted since the order — keep only ones that still exist, in rank order.
         var products = await _context.Products
             .Include(p => p.Category)
             .Where(p => productIds.Contains(p.Id))
             .ToListAsync();
-        var ordered = productIds.Select(id => products.First(p => p.Id == id)).Select(MapToDto).ToList();
+        var ordered = productIds
+            .Select(id => products.FirstOrDefault(p => p.Id == id))
+            .Where(p => p != null)
+            .Select(p => MapToDto(p!))
+            .ToList();
         return ApiResponse<List<ProductResponseDto>>.SuccessResult(ordered);
     }
 
@@ -252,6 +281,11 @@ public class ProductService : IProductService
         var query = _context.Products
             .Include(p => p.Category)
             .Where(p => p.IsActive);
+
+        // Paywall: hide products beyond a free vendor's cap (downgraded sellers) from the catalog.
+        var hiddenIds = await GetPlanHiddenProductIdsAsync();
+        if (hiddenIds.Count > 0)
+            query = query.Where(p => !hiddenIds.Contains(p.Id));
 
         if (!string.IsNullOrWhiteSpace(categoryId))
             query = query.Where(p => p.CategoryId == categoryId);
@@ -280,6 +314,19 @@ public class ProductService : IProductService
             .FirstOrDefaultAsync(p => p.Id == productId && p.IsActive);
         if (product == null)
             return ApiResponse<ProductWithVendorDto>.ErrorResult("Product not found.", ResponseCodes.NOT_FOUND);
+
+        // Paywall: hide products beyond a limited (free) vendor's cap — treat as not found to buyers.
+        if (product.Vendor != null)
+        {
+            var vendorPlan = SubscriptionPlans.For(product.Vendor);
+            if (vendorPlan.MaxProducts != SubscriptionPlans.Unlimited)
+            {
+                var newerActive = await _context.Products.CountAsync(p =>
+                    p.VendorId == product.VendorId && p.IsActive && p.CreatedAt > product.CreatedAt);
+                if (newerActive >= vendorPlan.MaxProducts)
+                    return ApiResponse<ProductWithVendorDto>.ErrorResult("Product not found.", ResponseCodes.NOT_FOUND);
+            }
+        }
 
         var dto = new ProductWithVendorDto
         {
@@ -359,6 +406,12 @@ public class ProductService : IProductService
                 .ToList();
         }
 
+        // Paywall ranking: paid stores are shown above free ones (both remain visible).
+        filteredVendors = filteredVendors
+            .OrderByDescending(u => SubscriptionPlans.IsPaid(u))
+            .ThenByDescending(u => u.CreatedAt)
+            .ToList();
+
         var total = filteredVendors.Count;
         var vendors = filteredVendors
             .Skip((page - 1) * pageSize)
@@ -424,6 +477,130 @@ public class ProductService : IProductService
         return ApiResponse<bool>.SuccessResult(true, "Engagement recorded.");
     }
 
+    public async Task<ApiResponse<bool>> SetPromotedAsync(string productId, string vendorId, bool promoted)
+    {
+        var product = await _context.Products.FirstOrDefaultAsync(p => p.Id == productId && p.VendorId == vendorId);
+        if (product == null)
+            return ApiResponse<bool>.ErrorResult("Product not found.", ResponseCodes.NOT_FOUND);
+
+        if (promoted)
+        {
+            var vendor = await _context.Users.FirstAsync(u => u.Id == vendorId);
+            var plan = SubscriptionPlans.For(vendor);
+            if (!plan.CanPromote)
+                return ApiResponse<bool>.ErrorResult(
+                    "Promoting products is a paid feature. Subscribe to promote your listings.", ResponseCodes.VALIDATION_ERROR);
+            if (!product.IsPromoted)
+            {
+                var promotedCount = await _context.Products.CountAsync(p => p.VendorId == vendorId && p.IsPromoted);
+                if (promotedCount >= plan.MaxPromotedProducts)
+                    return ApiResponse<bool>.ErrorResult(
+                        $"You can promote up to {plan.MaxPromotedProducts} products at once. Un-promote one first.", ResponseCodes.VALIDATION_ERROR);
+            }
+            product.IsPromoted = true;
+            product.PromotedAt = DateTime.UtcNow;
+        }
+        else
+        {
+            product.IsPromoted = false;
+            product.PromotedAt = null;
+        }
+
+        product.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+
+        if (promoted)
+            await _notifications.NotifyListingPromotedAsync(vendorId, product.Id, product.Name);
+
+        return ApiResponse<bool>.SuccessResult(product.IsPromoted, promoted ? "Product promoted." : "Product removed from promotions.");
+    }
+
+    public async Task<ApiResponse<List<VendorStoreListItemDto>>> ListTopStoresAsync(int limit)
+    {
+        limit = Math.Clamp(limit, 1, 50);
+        var vendors = await _context.Users.AsNoTracking()
+            .Where(u => u.UserType == UserType.Vendor && u.IsActive)
+            .ToListAsync();
+
+        var paid = vendors
+            .Where(SubscriptionPlans.IsPaid)     // only currently-active paid stores
+            .OrderByDescending(u => u.CreatedAt)
+            .Take(limit)
+            .ToList();
+
+        var vendorIds = paid.Select(v => v.Id).ToList();
+        var productCounts = await _context.Products.AsNoTracking()
+            .Where(p => vendorIds.Contains(p.VendorId) && p.IsActive)
+            .GroupBy(p => p.VendorId)
+            .Select(g => new { VendorId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.VendorId, x => x.Count);
+
+        var items = paid.Select(v => MapVendorStoreListItem(v, productCounts)).ToList();
+        return ApiResponse<List<VendorStoreListItemDto>>.SuccessResult(
+            items, items.Count == 0 ? "No featured stores yet." : "Top stores loaded.");
+    }
+
+    public async Task<ApiResponse<List<ProductResponseDto>>> ListFeaturedProductsAsync(int limit)
+    {
+        limit = Math.Clamp(limit, 1, 50);
+        var promoted = await _context.Products
+            .Include(p => p.Category)
+            .Include(p => p.Vendor)
+            .Where(p => p.IsPromoted && p.IsActive)
+            .OrderByDescending(p => p.PromotedAt)
+            .ToListAsync();
+
+        // Only keep promotions from vendors whose plan is still active (expired paid → dropped).
+        var featured = promoted
+            .Where(p => p.Vendor != null && SubscriptionPlans.IsPaid(p.Vendor))
+            .Take(limit)
+            .Select(MapToDto)
+            .ToList();
+
+        return ApiResponse<List<ProductResponseDto>>.SuccessResult(
+            featured, featured.Count == 0 ? "No featured products yet." : "Featured products loaded.");
+    }
+
+    /// <summary>
+    /// Active products hidden by the paywall: those of currently-free vendors beyond their plan cap.
+    /// Cheap in the normal case — the aggregate finds vendors over the cap, and only free ones (i.e.
+    /// downgraded ex-paid sellers) ever get a per-vendor lookup. Normal free sellers are capped at create.
+    /// </summary>
+    private async Task<List<string>> GetPlanHiddenProductIdsAsync()
+    {
+        var freeCap = SubscriptionPlans.For(SubscriptionTier.Free).MaxProducts;
+
+        var overCapVendorIds = await _context.Products.AsNoTracking()
+            .Where(p => p.IsActive)
+            .GroupBy(p => p.VendorId)
+            .Where(g => g.Count() > freeCap)
+            .Select(g => g.Key)
+            .ToListAsync();
+        if (overCapVendorIds.Count == 0)
+            return new List<string>();
+
+        var vendors = await _context.Users.AsNoTracking()
+            .Where(u => overCapVendorIds.Contains(u.Id))
+            .ToListAsync();
+
+        var hidden = new List<string>();
+        foreach (var vendor in vendors.Where(v => !SubscriptionPlans.IsPaid(v)))
+        {
+            var cap = SubscriptionPlans.For(vendor).MaxProducts;
+            if (cap == SubscriptionPlans.Unlimited)
+                continue;
+
+            var excess = await _context.Products.AsNoTracking()
+                .Where(p => p.VendorId == vendor.Id && p.IsActive)
+                .OrderByDescending(p => p.CreatedAt)
+                .Skip(cap)
+                .Select(p => p.Id)
+                .ToListAsync();
+            hidden.AddRange(excess);
+        }
+        return hidden;
+    }
+
     private static ProductResponseDto MapToDto(Product p)
     {
         return new ProductResponseDto
@@ -455,6 +632,20 @@ public class ProductService : IProductService
         var query = _context.Products
             .Include(p => p.Category)
             .Where(p => p.VendorId == vendor.Id && p.IsActive);
+
+        // Paywall: a limited (free) plan only shows buyers its N most-recent active products.
+        // (Matters after a downgrade — the extra products stay in the DB but are hidden.)
+        var plan = SubscriptionPlans.For(vendor);
+        if (plan.MaxProducts != SubscriptionPlans.Unlimited)
+        {
+            var visibleIds = await _context.Products
+                .Where(p => p.VendorId == vendor.Id && p.IsActive)
+                .OrderByDescending(p => p.CreatedAt)
+                .Take(plan.MaxProducts)
+                .Select(p => p.Id)
+                .ToListAsync();
+            query = query.Where(p => visibleIds.Contains(p.Id));
+        }
 
         if (!string.IsNullOrWhiteSpace(normalizedCategoryId))
             query = query.Where(p => p.CategoryId == normalizedCategoryId);

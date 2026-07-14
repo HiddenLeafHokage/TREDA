@@ -23,7 +23,8 @@ public interface IAuthService
 
     Task<ApiResponse<Application.DTOs.Vendor.VendorProfileDto>> GetVendorProfileAsync(string userId);
     Task<ApiResponse<bool>> UpdateVendorProfileAsync(string userId, Application.DTOs.Vendor.UpdateVendorProfileDto dto);
-    Task<ApiResponse<Application.DTOs.Vendor.VendorBrandingDto>> UpdateVendorBrandingAsync(string userId, Application.DTOs.Vendor.UpdateVendorBrandingDto dto);
+    /// <summary>Set the shop logo and/or cover. null = leave unchanged. Logo has a 6-month cooldown; cover does not.</summary>
+    Task<ApiResponse<Application.DTOs.Vendor.VendorBrandingDto>> UpdateVendorBrandingAsync(string userId, string? logoUrl, string? coverUrl);
     Task<bool> EmailExistsAsync(string email);
     Task<bool> PhoneExistsAsync(string phoneNumber);
 }

@@ -38,6 +38,16 @@ public class PublicController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>Homepage "Top Stores" — only currently-subscribed (paid) stores are featured. No auth.</summary>
+    [HttpGet("top-stores")]
+    public async Task<ActionResult<ApiResponse<List<VendorStoreListItemDto>>>> TopStores([FromQuery] int limit = 12)
+        => Ok(await _productService.ListTopStoresAsync(limit));
+
+    /// <summary>Homepage "Featured Products" — promoted products from currently-subscribed stores. No auth.</summary>
+    [HttpGet("featured-products")]
+    public async Task<ActionResult<ApiResponse<List<ProductResponseDto>>>> FeaturedProducts([FromQuery] int limit = 24)
+        => Ok(await _productService.ListFeaturedProductsAsync(limit));
+
     /// <summary>List all public vendor shops for buyer storefront browsing. No auth.</summary>
     [HttpGet("vendors")]
     public async Task<ActionResult<ApiResponse<PagedListDto<VendorStoreListItemDto>>>> ListVendors(
@@ -131,6 +141,7 @@ public class PublicController : ControllerBase
     {
         var result = await _orderService.CreateGuestOrderAsync(dto);
         if (result.Code == ResponseCodes.NOT_FOUND) return NotFound(result);
+        if (result.Code == ResponseCodes.VALIDATION_ERROR) return BadRequest(result);
         return CreatedAtAction(nameof(CreateOrder), new { id = result.Data!.Id }, result);
     }
 }

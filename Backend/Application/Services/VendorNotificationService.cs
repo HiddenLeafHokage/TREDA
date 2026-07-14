@@ -129,10 +129,10 @@ public class VendorNotificationService : IVendorNotificationService
                 VendorId = order.VendorId,
                 Category = NotificationCategory.Order,
                 Title = "New order received",
-                Body = $"{order.CustomerName} placed an order for {productPart} — ₦{order.Amount:N0}.",
+                Body = $"{order.CustomerName} placed an order for {productPart} — ₦{order.Total:N0}.",
                 ActionKind = NotificationActionKind.ViewOrder,
                 RelatedOrderId = order.Id,
-                RelatedProductId = order.ProductId,
+                RelatedProductId = order.Items.FirstOrDefault()?.ProductId,
                 IsRead = false,
                 CreatedAt = DateTime.UtcNow
             };
@@ -155,10 +155,10 @@ public class VendorNotificationService : IVendorNotificationService
                 VendorId = order.VendorId,
                 Category = NotificationCategory.Payment,
                 Title = "Order marked completed",
-                Body = $"₦{order.Amount:N0} for order involving {productPart} is recorded as completed. Check your wallet and orders.",
+                Body = $"₦{order.Total:N0} for order involving {productPart} is recorded as completed. Check your wallet and orders.",
                 ActionKind = NotificationActionKind.ViewWallet,
                 RelatedOrderId = order.Id,
-                RelatedProductId = order.ProductId,
+                RelatedProductId = order.Items.FirstOrDefault()?.ProductId,
                 IsRead = false,
                 CreatedAt = DateTime.UtcNow
             };
@@ -196,7 +196,32 @@ public class VendorNotificationService : IVendorNotificationService
         }
     }
 
-    public async Task NotifyListingPromotedAsync(string vendorId, string productId, string productName, decimal amountPaid)
+    public async Task NotifyOrderStatusChangedAsync(Order order, OrderStatus previousStatus)
+    {
+        try
+        {
+            var n = new VendorNotification
+            {
+                VendorId = order.VendorId,
+                Category = NotificationCategory.Order,
+                Title = $"Order #{order.OrderNumber} {order.Status}",
+                Body = $"Order #{order.OrderNumber} for {order.CustomerName} moved from {previousStatus} to {order.Status}.",
+                ActionKind = NotificationActionKind.ViewOrder,
+                RelatedOrderId = order.Id,
+                RelatedProductId = order.Items.FirstOrDefault()?.ProductId,
+                IsRead = false,
+                CreatedAt = DateTime.UtcNow
+            };
+            _context.VendorNotifications.Add(n);
+            await _context.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to create order-status notification for vendor {VendorId}", order.VendorId);
+        }
+    }
+
+    public async Task NotifyListingPromotedAsync(string vendorId, string productId, string productName)
     {
         try
         {
@@ -205,7 +230,7 @@ public class VendorNotificationService : IVendorNotificationService
                 VendorId = vendorId,
                 Category = NotificationCategory.Promotion,
                 Title = "Listing promoted",
-                Body = $"You promoted “{productName}” with Treda Ads (₦{amountPaid:N0}).",
+                Body = $"“{productName}” is now featured on the Treda homepage.",
                 ActionKind = NotificationActionKind.ViewPromotion,
                 RelatedProductId = productId,
                 IsRead = false,
@@ -217,6 +242,32 @@ public class VendorNotificationService : IVendorNotificationService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to create promotion notification for vendor {VendorId}", vendorId);
+        }
+    }
+
+    public async Task NotifySubscriptionChangedAsync(string vendorId, SubscriptionTier tier, DateTime? expiresAt)
+    {
+        try
+        {
+            var isFree = tier == SubscriptionTier.Free;
+            var n = new VendorNotification
+            {
+                VendorId = vendorId,
+                Category = NotificationCategory.Promotion,
+                Title = isFree ? "Plan ended" : $"{tier} plan active",
+                Body = isFree
+                    ? "Your plan is now Free. Product and pending-order limits apply, and your store is no longer featured."
+                    : $"Your {tier} plan is active until {expiresAt:yyyy-MM-dd}. Unlimited products, promotions, and featured placement are unlocked.",
+                ActionKind = NotificationActionKind.ViewPromotion,
+                IsRead = false,
+                CreatedAt = DateTime.UtcNow
+            };
+            _context.VendorNotifications.Add(n);
+            await _context.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to create subscription notification for vendor {VendorId}", vendorId);
         }
     }
 }

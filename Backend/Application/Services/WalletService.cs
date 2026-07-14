@@ -14,13 +14,11 @@ public class WalletService : IWalletService
 {
     private readonly TredaDbContext _context;
     private readonly ILogger<WalletService> _logger;
-    private readonly IVendorNotificationService _notifications;
 
-    public WalletService(TredaDbContext context, ILogger<WalletService> logger, IVendorNotificationService notifications)
+    public WalletService(TredaDbContext context, ILogger<WalletService> logger)
     {
         _context = context;
         _logger = logger;
-        _notifications = notifications;
     }
 
     public async Task<ApiResponse<WalletBalanceDto>> GetBalanceAsync(string vendorId)
@@ -51,49 +49,6 @@ public class WalletService : IWalletService
             CreatedAt = t.CreatedAt
         }).ToList();
         return ApiResponse<List<WalletTransactionDto>>.SuccessResult(dtos);
-    }
-
-    public async Task<ApiResponse<WalletBalanceDto>> PromoteProductAsync(string vendorId, string productId, PromoteProductDto dto)
-    {
-        var product = await _context.Products.FirstOrDefaultAsync(p => p.Id == productId && p.VendorId == vendorId);
-        if (product == null)
-            return ApiResponse<WalletBalanceDto>.ErrorResult("Product not found.", ResponseCodes.NOT_FOUND);
-
-        var wallet = await GetOrCreateWalletAsync(vendorId);
-        var amount = dto.Amount;
-        if (wallet.Balance < amount)
-            return ApiResponse<WalletBalanceDto>.ErrorResult("Insufficient wallet balance.", ResponseCodes.VALIDATION_ERROR);
-
-        wallet.Balance -= amount;
-        wallet.UpdatedAt = DateTime.UtcNow;
-
-        var start = DateTime.UtcNow;
-        var end = start.AddDays(dto.DurationDays);
-        _context.WalletTransactions.Add(new WalletTransaction
-        {
-            Id = Guid.NewGuid().ToString(),
-            VendorId = vendorId,
-            Amount = -amount,
-            Type = WalletTransactionType.Debit,
-            Description = "Treda Ads - Promote listing",
-            Reference = productId,
-            CreatedAt = DateTime.UtcNow
-        });
-
-        _context.ProductPromotions.Add(new ProductPromotion
-        {
-            Id = Guid.NewGuid().ToString(),
-            ProductId = productId,
-            VendorId = vendorId,
-            AmountPaid = amount,
-            StartDate = start,
-            EndDate = end,
-            CreatedAt = DateTime.UtcNow
-        });
-
-        await _context.SaveChangesAsync();
-        await _notifications.NotifyListingPromotedAsync(vendorId, productId, product.Name, amount);
-        return ApiResponse<WalletBalanceDto>.SuccessResult(new WalletBalanceDto { Balance = wallet.Balance, VendorId = vendorId }, "Listing promoted.");
     }
 
     private async Task<VendorWallet> GetOrCreateWalletAsync(string vendorId)

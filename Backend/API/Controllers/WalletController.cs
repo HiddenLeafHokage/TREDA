@@ -42,14 +42,4 @@ public class WalletController : ControllerBase
         return Ok(result);
     }
 
-    [HttpPost("promote/{productId}")]
-    public async Task<ActionResult<ApiResponse<WalletBalanceDto>>> PromoteProduct(string productId, [FromBody] PromoteProductDto dto)
-    {
-        if (string.IsNullOrEmpty(VendorId))
-            return Unauthorized(ApiResponse<WalletBalanceDto>.ErrorResult("Unauthorized", ResponseCodes.UNAUTHORIZED));
-        var result = await _walletService.PromoteProductAsync(VendorId, productId, dto);
-        if (result.Code == ResponseCodes.NOT_FOUND) return NotFound(result);
-        if (result.Code == ResponseCodes.VALIDATION_ERROR) return BadRequest(result);
-        return Ok(result);
-    }
 }

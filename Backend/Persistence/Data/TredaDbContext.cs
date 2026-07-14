@@ -29,11 +29,11 @@ public class TredaDbContext : DbContext
     public DbSet<ProductCategory> ProductCategories { get; set; }
     public DbSet<Product> Products { get; set; }
     public DbSet<Order> Orders { get; set; }
+    public DbSet<OrderItem> OrderItems { get; set; }
     public DbSet<VendorWallet> VendorWallets { get; set; }
     public DbSet<WalletTransaction> WalletTransactions { get; set; }
     public DbSet<Conversation> Conversations { get; set; }
     public DbSet<Message> Messages { get; set; }
-    public DbSet<ProductPromotion> ProductPromotions { get; set; }
     public DbSet<PasswordResetToken> PasswordResetTokens { get; set; }
     public DbSet<EmailVerificationToken> EmailVerificationTokens { get; set; }
     public DbSet<VendorNotification> VendorNotifications { get; set; }
@@ -54,6 +54,7 @@ public class TredaDbContext : DbContext
             entity.HasIndex(u => u.PhoneNumber).IsUnique().HasFilter("\"PhoneNumber\" IS NOT NULL");
             entity.Property(u => u.UserType).HasConversion(UserTypeConverter);
             entity.Property(u => u.DeliveryMethod).HasConversion<string>();
+            entity.Property(u => u.SubscriptionTier).HasConversion<string>();
             entity.Property(u => u.BusinessCategoryIds)
                 .HasConversion(CategoryIdsConverter)
                 .Metadata.SetValueComparer(new ValueComparer<List<string>>(
@@ -127,13 +128,30 @@ public class TredaDbContext : DbContext
         {
             entity.ToTable("Orders");
             entity.HasKey(o => o.Id);
-            entity.Property(o => o.Amount).HasPrecision(18, 2);
+            entity.Property(o => o.OrderNumber).UseIdentityByDefaultColumn(); // DB-generated sequential #
+            entity.HasIndex(o => o.OrderNumber).IsUnique();
+            entity.Property(o => o.Subtotal).HasPrecision(18, 2);
+            entity.Property(o => o.DeliveryFee).HasPrecision(18, 2);
+            entity.Property(o => o.Total).HasPrecision(18, 2);
             entity.Property(o => o.Status).HasConversion<string>();
+            entity.Property(o => o.PaymentStatus).HasConversion<string>();
+            entity.Property(o => o.DeliveryMethod).HasConversion<string>();
             entity.HasIndex(o => o.VendorId);
             entity.HasIndex(o => o.BuyerId).HasFilter("\"BuyerId\" IS NOT NULL");
             entity.HasOne(o => o.Vendor).WithMany().HasForeignKey(o => o.VendorId).OnDelete(DeleteBehavior.Restrict);
             entity.HasOne(o => o.Buyer).WithMany().HasForeignKey(o => o.BuyerId).OnDelete(DeleteBehavior.SetNull).IsRequired(false);
-            entity.HasOne(o => o.Product).WithMany().HasForeignKey(o => o.ProductId).OnDelete(DeleteBehavior.SetNull);
+            entity.HasMany(o => o.Items).WithOne(i => i.Order).HasForeignKey(i => i.OrderId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // OrderItem configuration — ProductId is a plain reference (no FK), so deleting a product
+        // never breaks order history (name + price are snapshotted on the item).
+        modelBuilder.Entity<OrderItem>(entity =>
+        {
+            entity.ToTable("OrderItems");
+            entity.HasKey(i => i.Id);
+            entity.Property(i => i.UnitPrice).HasPrecision(18, 2);
+            entity.HasIndex(i => i.OrderId);
+            entity.HasIndex(i => i.ProductId);
         });
 
         // VendorWallet configuration
@@ -175,16 +193,6 @@ public class TredaDbContext : DbContext
             entity.HasKey(m => m.Id);
             entity.HasIndex(m => m.ConversationId);
             entity.HasOne(m => m.Sender).WithMany().HasForeignKey(m => m.SenderId).OnDelete(DeleteBehavior.SetNull).IsRequired(false);
-        });
-
-        // ProductPromotion configuration
-        modelBuilder.Entity<ProductPromotion>(entity =>
-        {
-            entity.ToTable("ProductPromotions");
-            entity.HasKey(p => p.Id);
-            entity.Property(p => p.AmountPaid).HasPrecision(18, 2);
-            entity.HasIndex(p => p.ProductId);
-            entity.HasOne(p => p.Product).WithMany().HasForeignKey(p => p.ProductId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<VendorNotification>(entity =>

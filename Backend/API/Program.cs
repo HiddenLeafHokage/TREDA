@@ -223,6 +223,7 @@ try
     builder.Services.AddScoped<IVendorNotificationService, VendorNotificationService>();
     builder.Services.AddScoped<IVendorTrafficService, VendorTrafficService>();
     builder.Services.AddScoped<IVendorSearchService, VendorSearchService>();
+    builder.Services.AddScoped<ISubscriptionService, SubscriptionService>();
 
     // ── JWT Authentication ────────────────────────────────────────────────────
     var jwtSecret = builder.Configuration["Jwt:Secret"];

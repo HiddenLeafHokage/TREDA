@@ -30,6 +30,11 @@ public class User
     public DateTime? BusinessCoverPhotoUpdatedAt { get; set; }
     public string? CAC_RC_Number { get; set; }
     public DeliveryMethod? DeliveryMethod { get; set; }
+
+    // Subscription (paywall). Expired paid tiers are treated as Free — see SubscriptionPlans.
+    public SubscriptionTier SubscriptionTier { get; set; } = SubscriptionTier.Free;
+    public DateTime? SubscriptionExpiresAt { get; set; }
+
     [Required]
     public UserType UserType { get; set; }
     

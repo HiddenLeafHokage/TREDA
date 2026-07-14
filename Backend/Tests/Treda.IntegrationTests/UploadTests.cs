@@ -60,29 +60,7 @@ public class UploadTests : IntegrationTestBase
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
-    /// <summary>Two-step flow: upload to get a url string, then pass that string as a form field.</summary>
-    [Fact]
-    public async Task Uploaded_url_can_be_saved_as_logo_and_cover()
-    {
-        var client = NewClient();
-        await CreateVendorAsync(client);
-
-        using var uploadForm = ImageForm();
-        var uploaded = await DataAsync(await client.PostAsync("/api/upload", uploadForm));
-        var url = uploaded.GetProperty("url").GetString()!;
-
-        using var brandingForm = new MultipartFormDataContent
-        {
-            { new StringContent(url), "businessLogoUrl" },
-            { new StringContent(url), "businessCoverPhotoUrl" },
-        };
-        var saved = await DataAsync(await client.PutAsync("/api/vendor/store-appearance", brandingForm));
-
-        Assert.Equal(url, saved.GetProperty("businessLogoUrl").GetString());
-        Assert.Equal(url, saved.GetProperty("businessCoverPhotoUrl").GetString());
-    }
-
-    /// <summary>One-step flow: send the image files straight to store-appearance.</summary>
+    /// <summary>Send the image files straight to store-appearance — the only supported way.</summary>
     [Fact]
     public async Task Logo_and_cover_files_can_be_sent_directly_to_store_appearance()
     {

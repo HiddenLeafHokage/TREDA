@@ -23,4 +23,8 @@ public interface IProductService
     Task<ApiResponse<PagedListDto<VendorStoreListItemDto>>> ListPublicVendorsAsync(
         string? search, string? categoryId, string? location, int page, int pageSize);
     Task<ApiResponse<VendorPublicProfileDto>> GetPublicVendorProfileBySlugAsync(string slug, string? categoryId, int page, int pageSize);
+
+    Task<ApiResponse<bool>> SetPromotedAsync(string productId, string vendorId, bool promoted);
+    Task<ApiResponse<List<VendorStoreListItemDto>>> ListTopStoresAsync(int limit);
+    Task<ApiResponse<List<ProductResponseDto>>> ListFeaturedProductsAsync(int limit);
 }

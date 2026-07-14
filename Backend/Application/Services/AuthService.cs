@@ -784,7 +784,7 @@ public class AuthService : IAuthService
         return ApiResponse<bool>.SuccessResult(true, "Profile updated successfully.");
     }
 
-    public async Task<ApiResponse<VendorBrandingDto>> UpdateVendorBrandingAsync(string userId, UpdateVendorBrandingDto dto)
+    public async Task<ApiResponse<VendorBrandingDto>> UpdateVendorBrandingAsync(string userId, string? logoUrl, string? coverUrl)
     {
         var user = await _context.Users
             .FirstOrDefaultAsync(u => u.Id == userId && u.UserType == UserType.Vendor);
@@ -796,11 +796,11 @@ public class AuthService : IAuthService
         var previousLogoUrl = user.BusinessLogoUrl;
         var previousCoverUrl = user.BusinessCoverPhotoUrl;
 
-        if (dto.BusinessLogoUrl != null)
+        if (logoUrl != null)
         {
             var logoError = TryUpdateBrandingAsset(
                 user,
-                dto.BusinessLogoUrl,
+                logoUrl,
                 user.BusinessLogoUrl,
                 user.BusinessLogoUpdatedAt,
                 (url, ts) =>
@@ -813,12 +813,12 @@ public class AuthService : IAuthService
                 return ApiResponse<VendorBrandingDto>.ErrorResult(logoError.Message, logoError.Code);
         }
 
-        if (dto.BusinessCoverPhotoUrl != null)
+        if (coverUrl != null)
         {
             // Cover photo can be changed ANYTIME — no 6-month cooldown (unlike the logo).
-            var normalizedCover = string.IsNullOrWhiteSpace(dto.BusinessCoverPhotoUrl)
+            var normalizedCover = string.IsNullOrWhiteSpace(coverUrl)
                 ? null
-                : dto.BusinessCoverPhotoUrl.Trim();
+                : coverUrl.Trim();
 
             if (normalizedCover != null)
             {

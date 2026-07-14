@@ -58,16 +58,8 @@ public class OrdersController : ControllerBase
             return Unauthorized(ApiResponse<OrderResponseDto>.ErrorResult("Unauthorized", ResponseCodes.UNAUTHORIZED));
         var result = await _orderService.GetByIdAsync(id, VendorId);
         if (result.Code == ResponseCodes.NOT_FOUND) return NotFound(result);
+        if (result.Code == ResponseCodes.FORBIDDEN) return StatusCode(403, result);
         return Ok(result);
-    }
-
-    [HttpPost]
-    public async Task<ActionResult<ApiResponse<OrderResponseDto>>> Create([FromBody] CreateOrderDto dto)
-    {
-        if (string.IsNullOrEmpty(VendorId))
-            return Unauthorized(ApiResponse<OrderResponseDto>.ErrorResult("Unauthorized", ResponseCodes.UNAUTHORIZED));
-        var result = await _orderService.CreateAsync(VendorId, dto);
-        return CreatedAtAction(nameof(GetById), new { id = result.Data!.Id }, result);
     }
 
     [HttpPut("{id}/status")]
@@ -80,13 +72,35 @@ public class OrdersController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>Update order (e.g. negotiate invoice amount, or status).</summary>
+    /// <summary>Update order: set the delivery fee and/or change the fulfilment status.</summary>
     [HttpPut("{id}")]
     public async Task<ActionResult<ApiResponse<OrderResponseDto>>> UpdateOrder(string id, [FromBody] UpdateOrderDto dto)
     {
         if (string.IsNullOrEmpty(VendorId))
             return Unauthorized(ApiResponse<OrderResponseDto>.ErrorResult("Unauthorized", ResponseCodes.UNAUTHORIZED));
         var result = await _orderService.UpdateOrderAsync(id, VendorId, dto);
+        if (result.Code == ResponseCodes.NOT_FOUND) return NotFound(result);
+        return Ok(result);
+    }
+
+    /// <summary>Mark the order Paid / AwaitingPayment (payment happens off-platform).</summary>
+    [HttpPut("{id}/payment-status")]
+    public async Task<ActionResult<ApiResponse<OrderResponseDto>>> UpdatePaymentStatus(string id, [FromBody] UpdatePaymentStatusDto dto)
+    {
+        if (string.IsNullOrEmpty(VendorId))
+            return Unauthorized(ApiResponse<OrderResponseDto>.ErrorResult("Unauthorized", ResponseCodes.UNAUTHORIZED));
+        var result = await _orderService.UpdatePaymentStatusAsync(id, VendorId, dto);
+        if (result.Code == ResponseCodes.NOT_FOUND) return NotFound(result);
+        return Ok(result);
+    }
+
+    /// <summary>Invoice data for an order (From/To + items + totals). The frontend renders + exports the image.</summary>
+    [HttpGet("{id}/invoice")]
+    public async Task<ActionResult<ApiResponse<InvoiceDto>>> GetInvoice(string id)
+    {
+        if (string.IsNullOrEmpty(VendorId))
+            return Unauthorized(ApiResponse<InvoiceDto>.ErrorResult("Unauthorized", ResponseCodes.UNAUTHORIZED));
+        var result = await _orderService.GetInvoiceAsync(id, VendorId);
         if (result.Code == ResponseCodes.NOT_FOUND) return NotFound(result);
         return Ok(result);
     }

@@ -36,11 +36,12 @@ public class VendorSearchService : IVendorSearchService
             .ToListAsync();
 
         var orders = await _context.Orders
-            .Include(o => o.Product)
+            .Include(o => o.Items)
             .Where(o => o.VendorId == vendorId &&
-                        (o.CustomerName.Contains(q) || o.Id.Contains(q) ||
+                        (o.CustomerName.Contains(q) ||
+                         (o.GuestPhone != null && o.GuestPhone.Contains(q)) ||
                          (o.GuestEmail != null && o.GuestEmail.Contains(q)) ||
-                         (o.Product != null && o.Product.Name.Contains(q))))
+                         o.Items.Any(i => i.ProductName.Contains(q))))
             .OrderByDescending(o => o.CreatedAt)
             .Take(perSectionLimit)
             .ToListAsync();
@@ -79,14 +80,26 @@ public class VendorSearchService : IVendorSearchService
         static OrderResponseDto MapOrder(Domain.Entities.Order o) => new()
         {
             Id = o.Id,
-            OrderIdDisplay = AppConstants.OrderIdDisplayPrefix + o.Id[..Math.Min(AppConstants.OrderIdDisplayLength, o.Id.Length)].ToUpperInvariant(),
+            OrderNumber = o.OrderNumber,
+            OrderIdDisplay = $"#{o.OrderNumber}",
+            InvoiceNumber = $"INV-{o.CreatedAt:yyyy}-{o.OrderNumber}",
             CustomerName = o.CustomerName,
             GuestEmail = o.GuestEmail,
             GuestName = o.GuestName,
-            Amount = o.Amount,
+            GuestPhone = o.GuestPhone,
+            Items = o.Items.Select(i => new OrderItemDto
+            {
+                ProductId = i.ProductId,
+                ProductName = i.ProductName,
+                UnitPrice = i.UnitPrice,
+                Quantity = i.Quantity,
+                LineTotal = i.LineTotal
+            }).ToList(),
+            Subtotal = o.Subtotal,
+            DeliveryFee = o.DeliveryFee,
+            Total = o.Total,
             Status = o.Status.ToString(),
-            ProductId = o.ProductId,
-            ProductName = o.Product?.Name,
+            PaymentStatus = o.PaymentStatus.ToString(),
             CreatedAt = o.CreatedAt,
             UpdatedAt = o.UpdatedAt
         };

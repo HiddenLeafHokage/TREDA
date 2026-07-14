@@ -32,6 +32,7 @@ services:
       Jwt__Issuer: "treda-api"
       Jwt__Audience: "treda-client"
       Jwt__ExpirationMinutes: "60"
+      Admin__ApiKey: "local-admin-key"
     depends_on:
       db:
         condition: service_healthy

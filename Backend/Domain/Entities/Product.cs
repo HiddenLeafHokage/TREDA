@@ -30,6 +30,10 @@ public class Product
     public int StockQuantity { get; set; }
     public bool IsActive { get; set; } = true;
 
+    /// <summary>Featured/promoted (homepage Featured Products). Paid sellers only, capped per plan.</summary>
+    public bool IsPromoted { get; set; }
+    public DateTime? PromotedAt { get; set; }
+
     public string VendorId { get; set; } = string.Empty; // Vendor = Seller
     public User? Vendor { get; set; }
 

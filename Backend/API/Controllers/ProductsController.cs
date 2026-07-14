@@ -97,4 +97,17 @@ public class ProductsController : ControllerBase
             return NotFound(result);
         return Ok(result);
     }
+
+    /// <summary>Promote (feature) this product on the homepage, or remove it. Paid plans only, capped per plan.</summary>
+    [HttpPut("{id}/promote")]
+    public async Task<ActionResult<ApiResponse<bool>>> Promote(string id, [FromBody] PromoteRequestDto dto)
+    {
+        if (string.IsNullOrEmpty(SellerId))
+            return Unauthorized(ApiResponse<bool>.ErrorResult("Unauthorized", ResponseCodes.UNAUTHORIZED));
+
+        var result = await _productService.SetPromotedAsync(id, SellerId, dto.Promoted);
+        if (result.Code == ResponseCodes.NOT_FOUND) return NotFound(result);
+        if (result.Code == ResponseCodes.VALIDATION_ERROR) return BadRequest(result);
+        return Ok(result);
+    }
 }

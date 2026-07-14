@@ -35,5 +35,6 @@ public class TredaApiFactory : WebApplicationFactory<Program>
         Environment.SetEnvironmentVariable("Jwt__Audience", "treda-client");
         // Disable rate limiting: the shared test server would otherwise hit the auth window.
         Environment.SetEnvironmentVariable("RateLimiting__Enabled", "false");
+        Environment.SetEnvironmentVariable("Admin__ApiKey", "test-admin-key");
     }
 }
