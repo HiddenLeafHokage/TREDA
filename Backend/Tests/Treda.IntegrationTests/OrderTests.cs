@@ -131,6 +131,42 @@ public class OrderTests : IntegrationTestBase
     }
 
     [Fact]
+    public async Task Analytics_daily_breakdown_counts_completed_orders_only()
+    {
+        var seller = NewClient();
+        var vendor = await CreateVendorAsync(seller);
+        var item = await CreateProductAsync(seller, "Item", 1000);
+
+        async Task<string> PlaceOrderAsync()
+        {
+            var placed = await DataAsync(await NewClient().PostAsJsonAsync("/api/public/orders", new
+            {
+                vendorId = vendor.Id,
+                items = new[] { new { productId = item, quantity = 1 } },
+                guestName = "Buyer",
+                guestPhone = "08000000000",
+                deliveryAddress = "a",
+                deliveryCity = "b",
+                deliveryState = "Lagos"
+            }));
+            return placed.GetProperty("id").GetString()!;
+        }
+
+        var shippedOnly = await PlaceOrderAsync();
+        await seller.PutAsJsonAsync($"/api/orders/{shippedOnly}/status", new { status = "Shipped" });
+
+        var completed = await PlaceOrderAsync();
+        await seller.PutAsJsonAsync($"/api/orders/{completed}/status", new { status = "Completed" });
+
+        var analytics = await DataAsync(await seller.GetAsync("/api/vendor/dashboard/analytics?lastDays=30"));
+        var totalOrdersInPerformance = analytics.GetProperty("performance").EnumerateArray()
+            .Sum(d => d.GetProperty("orderCount").GetInt32());
+
+        // Only the Completed order counts toward the daily breakdown — the Shipped one doesn't.
+        Assert.Equal(1, totalOrdersInPerformance);
+    }
+
+    [Fact]
     public async Task Order_with_unknown_product_is_rejected()
     {
         var seller = NewClient();

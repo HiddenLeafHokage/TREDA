@@ -14,6 +14,10 @@ public class UpdateProductDto
     [Range(0, double.MaxValue)]
     public decimal? Price { get; set; }
 
+    /// <summary>Optional sale price; must be lower than the product's Price.</summary>
+    [Range(0, double.MaxValue)]
+    public decimal? DiscountPrice { get; set; }
+
     public string? CategoryId { get; set; }
 
     public ProductCondition? Condition { get; set; }

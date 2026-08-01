@@ -296,7 +296,7 @@ public class OrderService : IOrderService
     {
         var from = DateTime.UtcNow.Date.AddDays(-lastDays);
         var orders = await _context.Orders
-            .Where(o => o.VendorId == vendorId && o.CreatedAt >= from && (o.Status == OrderStatus.Shipped || o.Status == OrderStatus.Completed))
+            .Where(o => o.VendorId == vendorId && o.CreatedAt >= from && o.Status == OrderStatus.Completed)
             .ToListAsync();
 
         var byDay = orders

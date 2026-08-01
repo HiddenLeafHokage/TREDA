@@ -57,4 +57,86 @@ public class ProductTests : IntegrationTestBase
 
         Assert.Equal(HttpStatusCode.BadRequest, create.StatusCode);
     }
+
+    [Fact]
+    public async Task Discount_price_must_be_lower_than_price()
+    {
+        var client = NewClient();
+        await CreateVendorAsync(client, categoryId: "cat-food");
+
+        var create = await client.PostAsJsonAsync("/api/products", new
+        {
+            name = "Overpriced discount",
+            description = "x",
+            price = 1000,
+            discountPrice = 1000, // not lower than price → rejected
+            categoryId = "cat-food",
+            condition = "New",
+            imageUrls = Array.Empty<string>(),
+            stockQuantity = 5,
+            isActive = true
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, create.StatusCode);
+
+        var ok = await DataAsync(await client.PostAsJsonAsync("/api/products", new
+        {
+            name = "Valid discount",
+            description = "x",
+            price = 1000,
+            discountPrice = 800,
+            categoryId = "cat-food",
+            condition = "New",
+            imageUrls = Array.Empty<string>(),
+            stockQuantity = 5,
+            isActive = true
+        }));
+        Assert.Equal(800m, ok.GetProperty("discountPrice").GetDecimal());
+    }
+
+    [Fact]
+    public async Task Draft_product_is_hidden_until_published_and_does_not_count_toward_the_free_cap()
+    {
+        var client = NewClient();
+        await CreateVendorAsync(client, categoryId: "cat-food");
+
+        var draft = await DataAsync(await client.PostAsJsonAsync("/api/products", new
+        {
+            name = "Draft Item",
+            description = "x",
+            price = 500,
+            categoryId = "cat-food",
+            condition = "New",
+            imageUrls = Array.Empty<string>(),
+            stockQuantity = 5,
+            isActive = true,
+            status = "Draft"
+        }));
+        var draftId = draft.GetProperty("id").GetString();
+        Assert.Equal("Draft", draft.GetProperty("status").GetString());
+
+        // Not visible publicly while a draft.
+        var publicList = await DataAsync(await NewClient().GetAsync("/api/public/products?page=1&pageSize=20"));
+        Assert.DoesNotContain(publicList.EnumerateArray(), p => p.GetProperty("id").GetString() == draftId);
+
+        // A draft doesn't use up the free plan's 3-product cap.
+        for (var i = 0; i < 3; i++)
+        {
+            Assert.Equal(HttpStatusCode.Created, (await client.PostAsJsonAsync("/api/products", new
+            {
+                name = $"Published{i}",
+                description = "x",
+                price = 500,
+                categoryId = "cat-food",
+                condition = "New",
+                imageUrls = Array.Empty<string>(),
+                stockQuantity = 5,
+                isActive = true
+            })).StatusCode);
+        }
+
+        // Publishing the draft now hits the cap (3 published already exist).
+        var publishBlocked = await client.PutAsync($"/api/products/{draftId}/publish", null);
+        Assert.Equal(HttpStatusCode.BadRequest, publishBlocked.StatusCode);
+    }
 }

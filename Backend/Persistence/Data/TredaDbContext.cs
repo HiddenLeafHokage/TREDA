@@ -88,6 +88,8 @@ public class TredaDbContext : DbContext
             entity.ToTable("Products");
             entity.HasKey(p => p.Id);
             entity.Property(p => p.Price).HasPrecision(18, 2);
+            entity.Property(p => p.DiscountPrice).HasPrecision(18, 2);
+            entity.Property(p => p.Status).HasConversion<string>();
             entity.Property(p => p.ImageUrls)
                 .HasConversion(ImageUrlsConverter)
                 .Metadata.SetValueComparer(new ValueComparer<List<string>>(

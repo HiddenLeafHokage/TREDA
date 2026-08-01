@@ -17,11 +17,18 @@ public class Product
     [Range(0, double.MaxValue)]
     public decimal Price { get; set; }
 
+    /// <summary>Optional sale price; must be lower than <see cref="Price"/> when set.</summary>
+    [Range(0, double.MaxValue)]
+    public decimal? DiscountPrice { get; set; }
+
     [Required]
     public string CategoryId { get; set; } = string.Empty;
     public ProductCategory? Category { get; set; }
 
     public ProductCondition Condition { get; set; } = ProductCondition.New;
+
+    /// <summary>Draft products are invisible to buyers until explicitly published.</summary>
+    public ProductStatus Status { get; set; } = ProductStatus.Published;
 
     [MaxLength(200)]
     public string? Location { get; set; } // City/area for pickup (Jiji-style)

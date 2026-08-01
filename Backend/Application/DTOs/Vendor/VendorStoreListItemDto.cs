@@ -9,6 +9,7 @@ public class VendorStoreListItemDto
     public string? BusinessCategory { get; set; }
     public List<string> BusinessCategoryIds { get; set; } = new();
     public string? BusinessLocation { get; set; }
+    public string? ShopDescription { get; set; }
     public string? BusinessLogoUrl { get; set; }
     public string? BusinessCoverPhotoUrl { get; set; }
     public string DisplayInitial { get; set; } = "V";

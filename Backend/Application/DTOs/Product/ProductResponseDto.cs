@@ -8,6 +8,7 @@ public class ProductResponseDto
     public string Name { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public decimal Price { get; set; }
+    public decimal? DiscountPrice { get; set; }
     public string CategoryId { get; set; } = string.Empty;
     public string CategoryName { get; set; } = string.Empty;
     public string Condition { get; set; } = string.Empty; // New, Used, Refurbished
@@ -15,6 +16,7 @@ public class ProductResponseDto
     public List<string> ImageUrls { get; set; } = new();
     public int StockQuantity { get; set; }
     public bool IsActive { get; set; }
+    public string Status { get; set; } = string.Empty; // Draft, Published
     public string VendorId { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }

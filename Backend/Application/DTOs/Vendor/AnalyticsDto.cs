@@ -8,7 +8,7 @@ public class AnalyticsDto
     public int Views { get; set; }
     public int TotalSearches { get; set; }
 
-    /// <summary>When there are no shipped/completed orders in the period.</summary>
+    /// <summary>When there are no completed orders in the period.</summary>
     public string? SalesInsight { get; set; }
 
     /// <summary>When engagement metrics are all zero for the period.</summary>

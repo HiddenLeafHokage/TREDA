@@ -14,6 +14,7 @@ public interface IProductService
     Task<ApiResponse<PagedListDto<ProductResponseDto>>> GetVendorProductsAsync(string vendorId, string? search, string? categoryId, int page, int pageSize);
     Task<ApiResponse<ProductResponseDto>> UpdateAsync(string productId, string sellerId, UpdateProductDto dto);
     Task<ApiResponse<bool>> DeleteAsync(string productId, string sellerId);
+    Task<ApiResponse<ProductResponseDto>> PublishAsync(string productId, string sellerId);
     Task<ApiResponse<VendorDashboardStatsDto>> GetDashboardStatsAsync(string sellerId);
     Task<ApiResponse<List<ProductResponseDto>>> GetBestSellingAsync(string sellerId, int limit = AppConstants.DefaultBestSellingLimit);
     Task<ApiResponse<List<ProductResponseDto>>> ListPublicAsync(string? search, string? categoryId, int page = 1, int pageSize = 20);

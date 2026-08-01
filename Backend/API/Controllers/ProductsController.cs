@@ -86,6 +86,19 @@ public class ProductsController : ControllerBase
         return Ok(result);
     }
 
+    /// <summary>Publish a draft product, making it visible to buyers. Subject to the plan's product cap.</summary>
+    [HttpPut("{id}/publish")]
+    public async Task<ActionResult<ApiResponse<ProductResponseDto>>> Publish(string id)
+    {
+        if (string.IsNullOrEmpty(SellerId))
+            return Unauthorized(ApiResponse<ProductResponseDto>.ErrorResult("Unauthorized", ResponseCodes.UNAUTHORIZED));
+
+        var result = await _productService.PublishAsync(id, SellerId);
+        if (result.Code == ResponseCodes.NOT_FOUND) return NotFound(result);
+        if (result.Code == ResponseCodes.VALIDATION_ERROR) return BadRequest(result);
+        return Ok(result);
+    }
+
     [HttpDelete("{id}")]
     public async Task<ActionResult<ApiResponse<bool>>> Delete(string id)
     {

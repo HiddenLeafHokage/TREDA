@@ -15,6 +15,10 @@ public class CreateProductDto
     [Range(0, double.MaxValue)]
     public decimal Price { get; set; }
 
+    /// <summary>Optional sale price; must be lower than Price.</summary>
+    [Range(0, double.MaxValue)]
+    public decimal? DiscountPrice { get; set; }
+
     [Required]
     public string CategoryId { get; set; } = string.Empty; // From GET /api/categories (e.g. cat-fashion, cat-food)
 
@@ -26,4 +30,7 @@ public class CreateProductDto
     public int StockQuantity { get; set; }
 
     public bool IsActive { get; set; } = true;
+
+    /// <summary>Draft = saved but invisible to buyers until PUT /api/products/{id}/publish.</summary>
+    public ProductStatus Status { get; set; } = ProductStatus.Published;
 }
